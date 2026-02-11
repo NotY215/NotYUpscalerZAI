@@ -26,14 +26,7 @@
 - [System Requirements](#-system-requirements)
 - [Key Features](#-key-features)
 - [Installation Guide](#-installation-guide)
-- [Quick Start](#-quick-start)
-- [Detailed Features](#-detailed-features)
-- [Models & AI Engine](#-models--ai-engine)
-- [Performance Optimization](#-performance-optimization)
-- [Troubleshooting](#-troubleshooting)
-- [FAQ](#-faq)
-- [Credits](#-credits)
-- [License](#-license)
+- [License](./LICENSE)
 
 ---
 
