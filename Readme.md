@@ -116,7 +116,18 @@ Perfect for users with integrated graphics, entry-level GPUs (GT 610/730), or ol
 
 ## 📦 Installation Guide
 
-### Step 1: Clone or Download
+### Step 1: Download
 ```bash
-git clone https://github.com/yourusername/NotYUpscalerZAI.git
-cd NotYUpscalerZAI
+DOWNLOAD EXE https://github.com/yourusername/NotYUpscalerZAI.git
+```
+### Step2: Run
+```
+Accept Terms and Condition
+Continue Choose Where to download
+
+```
+
+### Step3: Enjoy
+```
+ Just open installed app and enjoy 
+```
