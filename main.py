@@ -4,10 +4,6 @@ import os, sys, shutil, subprocess, time
 # --- 1. ENVIRONMENT SETUP ---
 def prepare_environment(venv_name="venv"):
     if sys.prefix != sys.base_prefix:
-        try:
-            from PIL import Image
-        except ImportError:
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "pillow"])
         return 
     
     venv_python = os.path.join(os.getcwd(), venv_name, "Scripts", "python.exe") if os.name == "nt" else \
@@ -18,7 +14,18 @@ def prepare_environment(venv_name="venv"):
 
 prepare_environment("venv")
 
-# --- 2. GENERATE PROFESSIONAL MULTI-RES ICON ---
+# --- 2. CONFIGURATION ---
+TARGET_DIR = r"F:\Own Apps\Installer" # Your specified path
+script_main = "NotYUpscalerZAi.py"
+png_icon = "logo.png"
+generated_ico = "final_icon.ico"
+models_data = "models;models" if os.name == "nt" else "models:models"
+
+# Ensure the target directory exists
+if not os.path.exists(TARGET_DIR):
+    os.makedirs(TARGET_DIR)
+
+# --- 3. GENERATE ICON ---
 def create_pro_icon(png_path, ico_output):
     from PIL import Image
     if not os.path.exists(png_path):
@@ -26,37 +33,38 @@ def create_pro_icon(png_path, ico_output):
     
     print(f"Generating high-res icon...")
     img = Image.open(png_path).convert("RGBA")
-    
-    # CRITICAL: This list ensures Windows has a pixel-perfect match for every view.
-    # The 256x256 layer is what makes it "stretch" to the edges in large view.
     icon_sizes = [(16,16), (32,32), (48,48), (64,64), (128,128), (256,256)]
-    img.save(ico_output, sizes=icon_sizes, bitmap_format="png") # 'png' format inside ICO is modern standard
+    img.save(ico_output, sizes=icon_sizes, bitmap_format="png")
     return ico_output
-
-# --- 3. CLEANUP & BUILD ---
-# Change the 'dist' folder name each time to force Windows to refresh the icon cache
-build_id = int(time.time())
-dist_path = f"dist_v{build_id}"
-
-for folder in ['build', 'dist']:
-    if os.path.exists(folder): shutil.rmtree(folder, ignore_errors=True)
-
-script_main = "NotYUpscale.py"
-png_icon = "logo.png"
-generated_ico = "final_icon.ico"
-models_data = "models;models" if os.name == "nt" else "models:models"
 
 icon_file = create_pro_icon(png_icon, generated_ico)
 
+# --- 4. RUN PYINSTALLER ---
 PyInstaller.__main__.run([
     script_main,
     "--onefile",
     "--windowed",
     f"--icon={icon_file}",
     f"--add-data={models_data}",
-    f"--distpath={dist_path}", # Forces a fresh icon refresh in Windows Explorer
+    f"--distpath={TARGET_DIR}", # Directs EXE to your F: drive path
     "--noconfirm",
     "--clean"
 ])
 
-print(f"\nSUCCESS! High-quality build is in: {dist_path}")
+# --- 5. AGGRESSIVE CLEANUP ---
+print("\nCleaning up all build artifacts...")
+
+# List of files/folders to remove from the current directory
+spec_file = script_main.replace(".py", ".spec")
+to_remove = ["build", "dist", "__pycache__", generated_ico, spec_file]
+
+for item in to_remove:
+    if os.path.exists(item):
+        if os.path.isdir(item):
+            shutil.rmtree(item, ignore_errors=True)
+        else:
+            os.remove(item)
+
+print(f"\nDONE!")
+print(f"Your EXE is located at: {TARGET_DIR}")
+print("All temporary build files have been deleted.")
