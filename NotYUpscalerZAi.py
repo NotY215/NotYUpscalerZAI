@@ -59,9 +59,10 @@ class NotYUpscalerZAI(ctk.CTk):
         self.playing = False
         self.current_frame_bgr = None
         self.output_folder = None
-        self.current_preview_image = None  # Keep strong ref to prevent garbage collection
+        self.current_preview_image = None  # Strong reference fix
 
         self.current_model_dict = VIDEO_MODELS
+        self.adjustment_frame = None  # Will be created dynamically
 
         self.load_config()
         self.detect_specs()
@@ -94,6 +95,7 @@ class NotYUpscalerZAI(ctk.CTk):
             self.recommended = "Auto"
 
     def create_ui(self):
+        # Top bar
         top_bar = ctk.CTkFrame(self, height=60, fg_color="#0f172a")
         top_bar.pack(fill="x")
         top_bar.pack_propagate(False)
@@ -118,6 +120,7 @@ class NotYUpscalerZAI(ctk.CTk):
         main.grid_columnconfigure(0, weight=3)
         main.grid_columnconfigure(1, weight=1)
 
+        # Preview Area
         preview_area = ctk.CTkFrame(main, fg_color="#0f172a", corner_radius=12)
         preview_area.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
 
@@ -214,14 +217,15 @@ class NotYUpscalerZAI(ctk.CTk):
                                                 command=self.toggle_live_preview, height=45)
         self.preview_toggle_btn.pack(pady=25, padx=25, fill="x")
 
-        adj = ctk.CTkFrame(sidebar, fg_color="#16213e")
-        adj.pack(pady=15, padx=25, fill="x")
-        ctk.CTkLabel(adj, text="Adjustments", font=ctk.CTkFont(size=15, weight="bold")).pack(pady=10)
+        # Adjustments frame (will be shown/hidden based on file type)
+        self.adjustment_frame = ctk.CTkFrame(sidebar, fg_color="#16213e")
+        self.adjustment_frame.pack(pady=15, padx=25, fill="x")
+        ctk.CTkLabel(self.adjustment_frame, text="Adjustments", font=ctk.CTkFont(size=15, weight="bold")).pack(pady=10)
 
-        self.sharpen_s   = self.add_slider(adj, "Sharpen",   0.5, 4.0, 2.2)
-        self.contrast_s  = self.add_slider(adj, "Contrast",  0.7, 2.0, 1.35)
-        self.sat_s       = self.add_slider(adj, "Saturation",0.5, 2.0, 1.15)
-        self.glow_s      = self.add_slider(adj, "Glow",      0.0, 1.2, 0.4)
+        self.sharpen_s   = self.add_slider(self.adjustment_frame, "Sharpen",   0.5, 4.0, 2.2)
+        self.contrast_s  = self.add_slider(self.adjustment_frame, "Contrast",  0.7, 2.0, 1.35)
+        self.sat_s       = self.add_slider(self.adjustment_frame, "Saturation",0.5, 2.0, 1.15)
+        self.glow_s      = self.add_slider(self.adjustment_frame, "Glow",      0.0, 1.2, 0.4)
 
         self.export_btn = ctk.CTkButton(sidebar, text="Export Enhanced File",
                                         command=self.start_export,
@@ -282,9 +286,11 @@ class NotYUpscalerZAI(ctk.CTk):
         if self.is_video:
             self.current_model_dict = VIDEO_MODELS
             default = "High (Ultra Native)"
+            self.adjustment_frame.pack_forget()   # Hide adjustments for video
         else:
             self.current_model_dict = IMAGE_MODEL
             default = "Image Enhance"
+            self.adjustment_frame.pack(pady=15, padx=25, fill="x")  # Show for image
 
         self.model_var.set(default)
         self.model_menu.configure(values=list(self.current_model_dict.keys()))
@@ -339,7 +345,7 @@ class NotYUpscalerZAI(ctk.CTk):
         pil = pil.resize((640, 400), Image.LANCZOS)
         cimg = ctk.CTkImage(pil, size=(640, 400))
         label.configure(image=cimg, text="")
-        self.current_preview_image = pil  # Keep reference to prevent garbage collection
+        self.current_preview_image = cimg  # Strong reference
 
     def toggle_play(self):
         if not self.is_video: return
@@ -379,7 +385,6 @@ class NotYUpscalerZAI(ctk.CTk):
         self.export_btn.configure(state="disabled")
         self.status.configure(text="Exporting...")
 
-        out_path = None
         try:
             out_path = self.get_output_path(self.current_path)
             model_cls = self.current_model_dict[self.model_var.get()]
@@ -398,13 +403,11 @@ class NotYUpscalerZAI(ctk.CTk):
                 nw, nh = self.calculate_size(w, h)
                 up = cv2.resize(img, (nw, nh), interpolation=cv2.INTER_LANCZOS4)
                 enhanced = model.enhance_frame(up)
-                if not cv2.imwrite(out_path, enhanced):
-                    raise RuntimeError("cv2.imwrite failed")
+                cv2.imwrite(out_path, enhanced)
             else:
                 cap = cv2.VideoCapture(self.current_path)
                 w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
                 h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                fps = cap.get(cv2.CAP_PROP_FPS)
                 cap.release()
                 nw, nh = self.calculate_size(w, h)
                 vf = model.get_ffmpeg_vf(nw, nh) if hasattr(model, 'get_ffmpeg_vf') else f"scale={nw}:{nh}"
@@ -420,7 +423,6 @@ class NotYUpscalerZAI(ctk.CTk):
                 ]
                 result = subprocess.run(cmd, capture_output=True, text=True)
                 if result.returncode != 0:
-                    print("FFmpeg error:", result.stderr)
                     raise RuntimeError(f"FFmpeg failed:\n{result.stderr[:400]}")
 
             self.after(0, lambda: messagebox.showinfo("Success", f"Saved to:\n{out_path}"))
@@ -446,6 +448,16 @@ class NotYUpscalerZAI(ctk.CTk):
                 os.startfile(self.current_path)
             else:
                 subprocess.call(['xdg-open' if os.name == 'posix' else 'open', self.current_path])
+
+    def auto_open_output(self, path):
+        if os.path.exists(path):
+            try:
+                if os.name == 'nt':
+                    os.startfile(path)
+                else:
+                    subprocess.call(['xdg-open' if os.name == 'posix' else 'open', path])
+            except:
+                pass
 
 if __name__ == "__main__":
     app = NotYUpscalerZAI()

@@ -1,5 +1,4 @@
 import cv2
-import numpy as np
 from .base_enhancer import BaseEnhancer
 
 class LiteRestoreEnhancer(BaseEnhancer):

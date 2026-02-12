@@ -7,7 +7,7 @@ class ImageEnhanceModel(BaseEnhancer):
         if frame is None or frame.size == 0:
             return frame
 
-        frame = cv2.bilateralFilter(frame, d=9, sigmaColor=75, sigmaSpace=75)
+        frame = cv2.bilateralFilter(frame, 9, 75, 75)
         try:
             frame = cv2.fastNlMeansDenoisingColored(frame, None, 10, 10, 7, 21)
         except:

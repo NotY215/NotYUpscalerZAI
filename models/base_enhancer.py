@@ -15,27 +15,17 @@ class BaseEnhancer:
         # Denoise
         try:
             frame = cv2.fastNlMeansDenoisingColored(frame, None, 8, 8, 7, 21)
-        except Exception as e:
-            print("Denoise skipped:", e)
+        except:
+            pass
 
-        # Contrast & Saturation - safe LAB
+        # Simple contrast
         try:
-            lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
-            l, a, b = cv2.split(lab)
-            clahe = cv2.createCLAHE(clipLimit=self.contrast * 3, tileGridSize=(8,8))
-            l = clahe.apply(l)
-            # Make sure channels match size
-            if a.shape != l.shape:
-                a = cv2.resize(a, (l.shape[1], l.shape[0]))
-            if b.shape != l.shape:
-                b = cv2.resize(b, (l.shape[1], l.shape[0]))
-            lab = cv2.merge([l, a * self.saturation, b * self.saturation])
-            frame = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
-        except Exception as e:
-            print("LAB processing skipped:", e)
+            frame = cv2.convertScaleAbs(frame, alpha=self.contrast, beta=0)
+        except:
+            pass
 
         # Sharpen
-        kernel = np.array([[-1,-1,-1], [-1, 1 + self.sharpen*8, -1], [-1,-1,-1]], dtype=np.float32) / (self.sharpen*8 + 1)
+        kernel = np.array([[-1,-1,-1], [-1, 1 + self.sharpen*9, -1], [-1,-1,-1]], dtype=np.float32) / (self.sharpen*9 + 1)
         frame = cv2.filter2D(frame, -1, kernel)
 
         # Glow
@@ -47,4 +37,4 @@ class BaseEnhancer:
 
     def get_ffmpeg_vf(self, tw, th):
         return (f"scale={tw}:{th}:flags=lanczos,unsharp=7:7:{self.sharpen*1.8},"
-                f"cas=0.85,eq=contrast={self.contrast}:saturation={self.saturation}")
+                f"cas=0.9,eq=contrast={self.contrast}:saturation={self.saturation}")
