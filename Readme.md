@@ -111,7 +111,7 @@ Perfect for users with integrated graphics, entry-level GPUs (GT 610/730), or ol
 
 ### Step 1: Download
 ```bash
-DOWNLOAD EXE https://github.com/yourusername/NotYUpscalerZAI.git
+DOWNLOAD EXE https://github.com/NotY215/NotYUpscalerZAI/releases
 ```
 ### Step2: Run
 ```
