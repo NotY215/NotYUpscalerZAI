@@ -9,6 +9,8 @@ import psutil
 import subprocess
 from PIL import Image
 import time
+from moviepy.editor import VideoFileClip
+import pygame
 
 # Models
 from models.lite_restore import LiteRestoreEnhancer
@@ -52,7 +54,7 @@ class NotYUpscalerZAI(ctk.CTk):
 
         self.accent = "#00e5ff"
         self.success = "#00ff9d"
-        self.live_enabled = False   # Default disabled
+        self.live_enabled = False  # Default disabled
 
         self.current_path = None
         self.is_video = False
@@ -68,52 +70,94 @@ class NotYUpscalerZAI(ctk.CTk):
         self.load_config()
         self.detect_specs()
 
-        # Show 5-second intro
+        # Show intro screen with video + sound
         self.show_intro_screen()
 
+        # Create main UI after intro
         self.create_ui()
 
-    def show_intro_screen(self):
-        self.intro_win = ctk.CTkToplevel(self)
-        self.intro_win.title("")
-        self.intro_win.geometry("800x500")
-        self.intro_win.overrideredirect(True)
-        self.intro_win.configure(fg_color="black")
+def show_intro_screen(self):
+    self.intro_win = ctk.CTkToplevel(self)
+    self.intro_win.title("")
+    self.intro_win.geometry("900x600")
+    self.intro_win.overrideredirect(True)
+    self.intro_win.configure(fg_color="black")
 
-        # Center window
-        x = (self.intro_win.winfo_screenwidth() // 2) - 400
-        y = (self.intro_win.winfo_screenheight() // 2) - 250
-        self.intro_win.geometry(f"800x500+{x}+{y}")
+    # Center on screen
+    x = (self.intro_win.winfo_screenwidth() // 2) - 450
+    y = (self.intro_win.winfo_screenheight() // 2) - 300
+    self.intro_win.geometry(f"900x600+{x}+{y}")
 
-        # Video player
-        self.video_label = ctk.CTkLabel(self.intro_win, text="", fg_color="black")
-        self.video_label.pack(expand=True, fill="both")
+    self.video_label = ctk.CTkLabel(self.intro_win, text="", fg_color="black")
+    self.video_label.pack(expand=True, fill="both")
 
-        threading.Thread(target=self.play_intro_video, daemon=True).start()
+    # Flag to stop playback
+    self.intro_playing = True
 
-        self.after(5000, self.close_intro)
+    # Start video + sound thread
+    threading.Thread(target=self.play_intro_with_sound, daemon=True).start()
 
-    def play_intro_video(self):
-        if not os.path.exists("intro.mp4"):
-            self.after(0, lambda: self.video_label.configure(text="intro.mp4 not found"))
-            return
+    # Force close after max 8 seconds even if video is longer
+    self.after(8000, self.close_intro)
+
+
+def play_intro_with_sound(self):
+    if not os.path.exists("intro.mp4"):
+        self.after(0, lambda: self.video_label.configure(text="intro.mp4 not found"))
+        self.after(0, self.close_intro)
+        return
+
+    try:
+        pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
+        clip = VideoFileClip("intro.mp4")
+
+        # Play audio
+        if clip.audio:
+            clip.audio.write_audiofile("temp_intro_audio.wav", logger=None)
+            pygame.mixer.music.load("temp_intro_audio.wav")
+            pygame.mixer.music.play()
 
         cap = cv2.VideoCapture("intro.mp4")
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                break
-            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            pil = Image.fromarray(rgb)
-            pil = pil.resize((800, 500), Image.LANCZOS)
-            cimg = ctk.CTkImage(pil, size=(800, 500))
-            self.after(0, lambda img=cimg: self.video_label.configure(image=img))
-            time.sleep(0.033)  # ~30 fps
-        cap.release()
+        fps = cap.get(cv2.CAP_PROP_FPS) or 30
+        delay_ms = int(1000 / fps)
 
-    def close_intro(self):
-        if hasattr(self, 'intro_win'):
-            self.intro_win.destroy()
+        def update_frame():
+            if not self.intro_playing or not cap.isOpened():
+                cap.release()
+                pygame.mixer.music.stop()
+                if os.path.exists("temp_intro_audio.wav"):
+                    os.remove("temp_intro_audio.wav")
+                self.after(0, self.close_intro)
+                return
+
+            ret, frame = cap.read()
+            if ret:
+                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                pil = Image.fromarray(rgb)
+                pil = pil.resize((900, 600), Image.LANCZOS)
+                cimg = ctk.CTkImage(pil, size=(900, 600))
+                self.after(0, lambda i=cimg: self.video_label.configure(image=i))
+                self.after(delay_ms, update_frame)
+            else:
+                cap.release()
+                pygame.mixer.music.stop()
+                if os.path.exists("temp_intro_audio.wav"):
+                    os.remove("temp_intro_audio.wav")
+                self.after(0, self.close_intro)
+
+        # Start the frame update loop
+        self.after(delay_ms, update_frame)
+
+    except Exception as e:
+        print("Intro error:", str(e))
+        self.after(0, lambda: self.video_label.configure(text=f"Error: {str(e)}"))
+        self.after(1000, self.close_intro)
+
+
+def close_intro(self):
+    if hasattr(self, 'intro_win') and self.intro_win.winfo_exists():
+        self.intro_playing = False
+        self.intro_win.destroy()
 
     def load_config(self):
         if os.path.exists(CONFIG_FILE):
@@ -264,7 +308,7 @@ class NotYUpscalerZAI(ctk.CTk):
                                                 command=self.toggle_live_preview, height=45)
         self.preview_toggle_btn.pack(pady=25, padx=25, fill="x")
 
-        # Adjustments (only for images)
+        # Adjustments frame (only shown for images)
         self.adj_frame = ctk.CTkFrame(sidebar, fg_color="#16213e")
         self.adj_frame.pack(pady=15, padx=25, fill="x")
         ctk.CTkLabel(self.adj_frame, text="Adjustments", font=ctk.CTkFont(size=15, weight="bold")).pack(pady=10)
