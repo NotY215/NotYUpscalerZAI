@@ -12,23 +12,19 @@ class BaseEnhancer:
         if frame is None or frame.size == 0:
             return frame
 
-        # Denoise
         try:
             frame = cv2.fastNlMeansDenoisingColored(frame, None, 8, 8, 7, 21)
         except:
             pass
 
-        # Simple contrast
         try:
             frame = cv2.convertScaleAbs(frame, alpha=self.contrast, beta=0)
         except:
             pass
 
-        # Sharpen
         kernel = np.array([[-1,-1,-1], [-1, 1 + self.sharpen*9, -1], [-1,-1,-1]], dtype=np.float32) / (self.sharpen*9 + 1)
         frame = cv2.filter2D(frame, -1, kernel)
 
-        # Glow
         if self.glow > 0:
             blurred = cv2.GaussianBlur(frame, (0,0), 18)
             frame = cv2.addWeighted(frame, 1.0, blurred, self.glow*0.8, 0)

@@ -8,6 +8,7 @@ import threading
 import psutil
 import subprocess
 from PIL import Image
+import time
 
 # Models
 from models.lite_restore import LiteRestoreEnhancer
@@ -51,7 +52,7 @@ class NotYUpscalerZAI(ctk.CTk):
 
         self.accent = "#00e5ff"
         self.success = "#00ff9d"
-        self.live_enabled = True
+        self.live_enabled = False   # Default disabled
 
         self.current_path = None
         self.is_video = False
@@ -59,14 +60,60 @@ class NotYUpscalerZAI(ctk.CTk):
         self.playing = False
         self.current_frame_bgr = None
         self.output_folder = None
-        self.current_preview_image = None  # Strong reference fix
+        self.current_orig_image = None
+        self.current_enh_image = None
 
         self.current_model_dict = VIDEO_MODELS
-        self.adjustment_frame = None  # Will be created dynamically
 
         self.load_config()
         self.detect_specs()
+
+        # Show 5-second intro
+        self.show_intro_screen()
+
         self.create_ui()
+
+    def show_intro_screen(self):
+        self.intro_win = ctk.CTkToplevel(self)
+        self.intro_win.title("")
+        self.intro_win.geometry("800x500")
+        self.intro_win.overrideredirect(True)
+        self.intro_win.configure(fg_color="black")
+
+        # Center window
+        x = (self.intro_win.winfo_screenwidth() // 2) - 400
+        y = (self.intro_win.winfo_screenheight() // 2) - 250
+        self.intro_win.geometry(f"800x500+{x}+{y}")
+
+        # Video player
+        self.video_label = ctk.CTkLabel(self.intro_win, text="", fg_color="black")
+        self.video_label.pack(expand=True, fill="both")
+
+        threading.Thread(target=self.play_intro_video, daemon=True).start()
+
+        self.after(5000, self.close_intro)
+
+    def play_intro_video(self):
+        if not os.path.exists("intro.mp4"):
+            self.after(0, lambda: self.video_label.configure(text="intro.mp4 not found"))
+            return
+
+        cap = cv2.VideoCapture("intro.mp4")
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            pil = Image.fromarray(rgb)
+            pil = pil.resize((800, 500), Image.LANCZOS)
+            cimg = ctk.CTkImage(pil, size=(800, 500))
+            self.after(0, lambda img=cimg: self.video_label.configure(image=img))
+            time.sleep(0.033)  # ~30 fps
+        cap.release()
+
+    def close_intro(self):
+        if hasattr(self, 'intro_win'):
+            self.intro_win.destroy()
 
     def load_config(self):
         if os.path.exists(CONFIG_FILE):
@@ -138,7 +185,7 @@ class NotYUpscalerZAI(ctk.CTk):
         enh_box.grid(row=0, column=1, padx=8, pady=8, sticky="nsew")
         ctk.CTkLabel(enh_box, text="Enhanced", font=ctk.CTkFont(size=16, weight="bold"),
                      text_color=self.accent).pack(pady=6)
-        self.enh_label = ctk.CTkLabel(enh_box, text="Live preview will appear here", width=640, height=400,
+        self.enh_label = ctk.CTkLabel(enh_box, text="Live preview disabled", width=640, height=400,
                                       fg_color="#1e2937", corner_radius=8)
         self.enh_label.pack(pady=8)
 
@@ -201,7 +248,7 @@ class NotYUpscalerZAI(ctk.CTk):
                           variable=self.device_var, fg_color="#7b00ff").pack(fill="x", pady=5)
 
         ctk.CTkLabel(sidebar, text="AI Model").pack(anchor="w", padx=25, pady=(15,5))
-        self.model_var = ctk.StringVar(value=list(self.current_model_dict.keys())[0])
+        self.model_var = ctk.StringVar(value="High (Ultra Native)")
         self.model_menu = ctk.CTkOptionMenu(sidebar, values=list(self.current_model_dict.keys()),
                                             variable=self.model_var, command=self.live_update,
                                             fg_color="#7b00ff")
@@ -212,20 +259,20 @@ class NotYUpscalerZAI(ctk.CTk):
         ctk.CTkOptionMenu(sidebar, values=["Fit 2K", "Fit 3K", "Fit 4K"],
                           variable=self.target_var, fg_color="#7b00ff").pack(padx=25, pady=5, fill="x")
 
-        self.preview_toggle_btn = ctk.CTkButton(sidebar, text="Live Preview: ENABLED",
-                                                fg_color="#00e5ff", text_color="black",
+        self.preview_toggle_btn = ctk.CTkButton(sidebar, text="Live Preview: DISABLED",
+                                                fg_color="gray20", text_color="white",
                                                 command=self.toggle_live_preview, height=45)
         self.preview_toggle_btn.pack(pady=25, padx=25, fill="x")
 
-        # Adjustments frame (will be shown/hidden based on file type)
-        self.adjustment_frame = ctk.CTkFrame(sidebar, fg_color="#16213e")
-        self.adjustment_frame.pack(pady=15, padx=25, fill="x")
-        ctk.CTkLabel(self.adjustment_frame, text="Adjustments", font=ctk.CTkFont(size=15, weight="bold")).pack(pady=10)
+        # Adjustments (only for images)
+        self.adj_frame = ctk.CTkFrame(sidebar, fg_color="#16213e")
+        self.adj_frame.pack(pady=15, padx=25, fill="x")
+        ctk.CTkLabel(self.adj_frame, text="Adjustments", font=ctk.CTkFont(size=15, weight="bold")).pack(pady=10)
 
-        self.sharpen_s   = self.add_slider(self.adjustment_frame, "Sharpen",   0.5, 4.0, 2.2)
-        self.contrast_s  = self.add_slider(self.adjustment_frame, "Contrast",  0.7, 2.0, 1.35)
-        self.sat_s       = self.add_slider(self.adjustment_frame, "Saturation",0.5, 2.0, 1.15)
-        self.glow_s      = self.add_slider(self.adjustment_frame, "Glow",      0.0, 1.2, 0.4)
+        self.sharpen_s   = self.add_slider(self.adj_frame, "Sharpen",   0.5, 4.0, 2.2)
+        self.contrast_s  = self.add_slider(self.adj_frame, "Contrast",  0.7, 2.0, 1.35)
+        self.sat_s       = self.add_slider(self.adj_frame, "Saturation",0.5, 2.0, 1.15)
+        self.glow_s      = self.add_slider(self.adj_frame, "Glow",      0.0, 1.2, 0.4)
 
         self.export_btn = ctk.CTkButton(sidebar, text="Export Enhanced File",
                                         command=self.start_export,
@@ -285,12 +332,12 @@ class NotYUpscalerZAI(ctk.CTk):
 
         if self.is_video:
             self.current_model_dict = VIDEO_MODELS
+            self.adj_frame.pack_forget()   # Hide adjustments for video
             default = "High (Ultra Native)"
-            self.adjustment_frame.pack_forget()   # Hide adjustments for video
         else:
             self.current_model_dict = IMAGE_MODEL
+            self.adj_frame.pack(pady=15, padx=25, fill="x")  # Show for image
             default = "Image Enhance"
-            self.adjustment_frame.pack(pady=15, padx=25, fill="x")  # Show for image
 
         self.model_var.set(default)
         self.model_menu.configure(values=list(self.current_model_dict.keys()))
@@ -345,7 +392,10 @@ class NotYUpscalerZAI(ctk.CTk):
         pil = pil.resize((640, 400), Image.LANCZOS)
         cimg = ctk.CTkImage(pil, size=(640, 400))
         label.configure(image=cimg, text="")
-        self.current_preview_image = cimg  # Strong reference
+        if label == self.enh_label:
+            self.current_enh_image = cimg
+        else:
+            self.current_orig_image = cimg
 
     def toggle_play(self):
         if not self.is_video: return
