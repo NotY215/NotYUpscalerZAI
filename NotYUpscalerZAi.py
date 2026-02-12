@@ -42,8 +42,11 @@ class NotYUpscalerZAI(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("NotYUpscalerZAI")
-        self.geometry("1420x920")
-        self.minsize(1200, 750)
+
+        # Start small for intro
+        self.geometry("800x800")
+        self.minsize(800, 800)
+        self.resizable(True, True)
 
         if os.path.exists("logo.ico"):
             try:
@@ -70,128 +73,15 @@ class NotYUpscalerZAI(ctk.CTk):
         self.load_config()
         self.detect_specs()
 
-        # Create main UI but hide it initially
-        self.create_ui()
-        self.main_frame = self.winfo_children()[0]  # scrollable frame
-        self.main_frame.pack_forget()
-
-        # Show intro directly in main window
+        # Intro starts immediately — main UI is not packed yet
+        self.intro_start_time = time.time()
         self.show_intro_embedded()
 
-    def show_intro_embedded(self):
-        self.intro_frame = ctk.CTkFrame(self, fg_color="black")
-        self.intro_frame.pack(fill="both", expand=True)
+        # Create main UI but do NOT pack it yet
+        self._create_main_ui()
 
-        self.video_label = ctk.CTkLabel(self.intro_frame, text="", fg_color="black")
-        self.video_label.pack(expand=True, fill="both")
-
-        self.intro_playing = True
-
-        threading.Thread(target=self.play_intro_with_sound, daemon=True).start()
-
-    def play_intro_with_sound(self):
-        if not os.path.exists("intro.mp4"):
-            self.after(0, lambda: self.video_label.configure(text="intro.mp4 missing"))
-            self.after(2000, self.finish_intro)
-            return
-
-        try:
-            pygame.mixer.init()
-            clip = VideoFileClip("intro.mp4")
-
-            audio_file = "temp_intro_audio.wav"
-            if clip.audio:
-                clip.audio.write_audiofile(audio_file, logger=None)
-                pygame.mixer.music.load(audio_file)
-                pygame.mixer.music.play()
-
-            cap = cv2.VideoCapture("intro.mp4")
-            fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
-            delay_ms = int(1000 / fps)
-
-            def update_frame():
-                if not self.intro_playing or not cap.isOpened() or not self.video_label.winfo_exists():
-                    self._cleanup_intro(cap, audio_file)
-                    return
-
-                ret, frame = cap.read()
-                if ret:
-                    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    pil = Image.fromarray(rgb)
-                    pil = pil.resize((self.winfo_width(), self.winfo_height()), Image.LANCZOS)
-                    cimg = ctk.CTkImage(pil, size=(self.winfo_width(), self.winfo_height()))
-                    if self.video_label.winfo_exists():
-                        self.after(0, lambda i=cimg: self.video_label.configure(image=i))
-                    self.after(delay_ms, update_frame)
-                else:
-                    self._cleanup_intro(cap, audio_file)
-                    self.after(0, self.finish_intro)
-
-            self.after(delay_ms, update_frame)
-
-        except Exception as e:
-            print("Intro error:", str(e))
-            self.after(0, lambda: self.video_label.configure(text=f"Error: {str(e)}"))
-            self.after(2000, self.finish_intro)
-
-    def _cleanup_intro(self, cap, audio_file):
-        try:
-            cap.release()
-            pygame.mixer.music.stop()
-            pygame.mixer.quit()
-            time.sleep(0.5)
-            if os.path.exists(audio_file):
-                os.remove(audio_file)
-        except:
-            pass
-
-    def finish_intro(self):
-        self.intro_playing = False
-        if hasattr(self, 'intro_frame') and self.intro_frame.winfo_exists():
-            self.intro_frame.destroy()
-        # Show main UI with fade-in effect
-        self.main_frame.pack(fill="both", expand=True)
-        self.attributes('-alpha', 0.0)
-        self._fade_in(0.0)
-
-    def _fade_in(self, alpha):
-        alpha += 0.08
-        if alpha < 1.0:
-            self.attributes('-alpha', alpha)
-            self.after(40, lambda: self._fade_in(alpha))
-        else:
-            self.attributes('-alpha', 1.0)
-
-    def load_config(self):
-        if os.path.exists(CONFIG_FILE):
-            try:
-                with open(CONFIG_FILE, "r") as f:
-                    self.config = json.load(f)
-            except:
-                self.config = {"specs_read": False, "preferred_device": "Auto"}
-        else:
-            self.config = {"specs_read": False, "preferred_device": "Auto"}
-
-    def save_config(self):
-        with open(CONFIG_FILE, "w") as f:
-            json.dump(self.config, f)
-
-    def detect_specs(self):
-        self.ram_gb = psutil.virtual_memory().total / (1024**3)
-        self.cores = psutil.cpu_count(logical=False) or 2
-        try:
-            self.has_cuda = cv2.cuda.getCudaEnabledDeviceCount() > 0
-        except:
-            self.has_cuda = False
-
-        if self.ram_gb < 8 or self.cores <= 2:
-            self.recommended = "CPU only"
-        elif self.has_cuda:
-            self.recommended = "GPU (if available)"
-        else:
-            self.recommended = "Auto"
-
-    def create_ui(self):
+    def _create_main_ui(self):
+        """Builds main UI but does not display it yet"""
         top_bar = ctk.CTkFrame(self, height=60, fg_color="#0f172a")
         top_bar.pack(fill="x")
         top_bar.pack_propagate(False)
@@ -328,6 +218,126 @@ class NotYUpscalerZAI(ctk.CTk):
 
         self.status = ctk.CTkLabel(sidebar, text="", text_color=self.accent)
         self.status.pack()
+
+        # Hide main UI initially
+        scroll.pack_forget()
+
+    def finish_intro(self):
+        self.intro_playing = False
+        if hasattr(self, 'intro_frame') and self.intro_frame.winfo_exists():
+            self.intro_frame.destroy()
+
+        # Restore original size
+        self.geometry("1420x920")
+        self.minsize(1200, 750)
+
+        # Show main UI with fade-in
+        self.attributes('-alpha', 0.0)
+        self._fade_in(0.0)
+
+    def _fade_in(self, alpha):
+        alpha += 0.08
+        if alpha < 1.0:
+            self.attributes('-alpha', alpha)
+            self.after(40, lambda: self._fade_in(alpha))
+        else:
+            self.attributes('-alpha', 1.0)
+
+    def play_intro_with_sound(self):
+        if not os.path.exists("intro.mp4"):
+            self.after(0, lambda: self.video_label.configure(text="intro.mp4 missing"))
+            self.after(5000, self.finish_intro)
+            return
+
+        try:
+            pygame.mixer.init()
+            clip = VideoFileClip("intro.mp4")
+
+            audio_file = "temp_intro_audio.wav"
+            if clip.audio:
+                clip.audio.write_audiofile(audio_file, logger=None)
+                pygame.mixer.music.load(audio_file)
+                pygame.mixer.music.play()
+
+            cap = cv2.VideoCapture("intro.mp4")
+            fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+            delay_ms = int(1000 / fps)
+
+            def update_frame():
+                if not self.intro_playing or not cap.isOpened() or not self.video_label.winfo_exists():
+                    self._cleanup_intro(cap, audio_file)
+                    return
+
+                ret, frame = cap.read()
+                if ret:
+                    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    pil = Image.fromarray(rgb)
+                    # Stretch to fill window
+                    pil = pil.resize((self.winfo_width(), self.winfo_height()), Image.LANCZOS)
+                    cimg = ctk.CTkImage(pil, size=(self.winfo_width(), self.winfo_height()))
+                    if self.video_label.winfo_exists():
+                        self.after(0, lambda i=cimg: self.video_label.configure(image=i))
+                    self.after(delay_ms, update_frame)
+                else:
+                    self._cleanup_intro(cap, audio_file)
+                    self.after(0, self.finish_intro)
+
+            self.after(delay_ms, update_frame)
+
+            # Enforce minimum 5 seconds even if video is shorter
+            elapsed = time.time() - self.intro_start_time
+            if elapsed < 5:
+                self.after(int((5 - elapsed) * 1000), self.finish_intro)
+
+        except Exception as e:
+            print("Intro error:", str(e))
+            self.after(0, lambda: self.video_label.configure(text=f"Error: {str(e)}"))
+            self.after(5000, self.finish_intro)
+
+    def _cleanup_intro(self, cap, audio_file):
+        try:
+            cap.release()
+            pygame.mixer.music.stop()
+            pygame.mixer.quit()
+            time.sleep(0.5)
+            if os.path.exists(audio_file):
+                os.remove(audio_file)
+        except:
+            pass
+
+    # ───────────────────────────────────────────────────────────────
+    # The rest of the code remains the same as before
+    # (load_config, save_config, detect_specs, create_ui, select_file, etc.)
+    # ───────────────────────────────────────────────────────────────
+
+    def load_config(self):
+        if os.path.exists(CONFIG_FILE):
+            try:
+                with open(CONFIG_FILE, "r") as f:
+                    self.config = json.load(f)
+            except:
+                self.config = {"specs_read": False, "preferred_device": "Auto"}
+        else:
+            self.config = {"specs_read": False, "preferred_device": "Auto"}
+
+    def save_config(self):
+        with open(CONFIG_FILE, "w") as f:
+            json.dump(self.config, f)
+
+    def detect_specs(self):
+        self.ram_gb = psutil.virtual_memory().total / (1024**3)
+        self.cores = psutil.cpu_count(logical=False) or 2
+        try:
+            self.has_cuda = cv2.cuda.getCudaEnabledDeviceCount() > 0
+        except:
+            self.has_cuda = False
+
+        if self.ram_gb < 8 or self.cores <= 2:
+            self.recommended = "CPU only"
+        elif self.has_cuda:
+            self.recommended = "GPU (if available)"
+        else:
+            self.recommended = "Auto"
 
     def select_file(self):
         path = filedialog.askopenfilename(filetypes=[("Media", "*.jpg *.jpeg *.png *.webp *.mp4 *.mkv *.avi *.mov")])
