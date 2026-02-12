@@ -123,4 +123,8 @@ Continue Choose Where to download
 ### Step3: Enjoy
 ```
  Just open installed app and enjoy 
+<<<<<<< HEAD
 ```
+=======
+```
+>>>>>>> fc5bd0e3d1dc589463a65bb81cfc274d8ae4ed81
