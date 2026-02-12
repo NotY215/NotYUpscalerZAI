@@ -1,12 +1,12 @@
 /.venv
 /config.json
-<<<<<<< HEAD
 /NotYUpscale.spec
 
 /Prompt.txt
 /logo.ico
 /logo.png
 /main.py
+
 =======
 /NotYUpscale.spec
->>>>>>> fc5bd0e3d1dc589463a65bb81cfc274d8ae4ed81
+
