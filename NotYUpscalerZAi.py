@@ -11,7 +11,11 @@ from PIL import Image
 import time
 from moviepy.editor import VideoFileClip
 import pygame
-import vlc  # python-vlc
+import vlc
+
+# Force VLC path (64-bit VLC usually here)
+vlc_path = r'C:\Program Files\VideoLAN\VLC'
+vlc.Instance('--plugin-path=' + vlc_path)
 
 try:
     import winsound
@@ -58,7 +62,6 @@ class NotYUpscalerZAI(ctk.CTk):
         self.current_frame_bgr = None
         self.output_folder = None
 
-        # Strong refs for images
         self.current_orig_preview = None
         self.current_enh_preview = None
 
@@ -67,22 +70,19 @@ class NotYUpscalerZAI(ctk.CTk):
         self.load_config()
         self.detect_specs()
 
-        self.show_intro_screen()
-
+        # Create main UI but hide it initially
         self.create_ui()
+        self.main_frame = self.winfo_children()[0]  # scrollable frame
+        self.main_frame.pack_forget()
 
-    def show_intro_screen(self):
-        self.intro_win = ctk.CTkToplevel(self)
-        self.intro_win.title("")
-        self.intro_win.geometry("900x600")
-        self.intro_win.overrideredirect(True)
-        self.intro_win.configure(fg_color="black")
+        # Show intro directly in main window
+        self.show_intro_embedded()
 
-        x = (self.intro_win.winfo_screenwidth() // 2) - 450
-        y = (self.intro_win.winfo_screenheight() // 2) - 300
-        self.intro_win.geometry(f"900x600+{x}+{y}")
+    def show_intro_embedded(self):
+        self.intro_frame = ctk.CTkFrame(self, fg_color="black")
+        self.intro_frame.pack(fill="both", expand=True)
 
-        self.video_label = ctk.CTkLabel(self.intro_win, text="", fg_color="black")
+        self.video_label = ctk.CTkLabel(self.intro_frame, text="", fg_color="black")
         self.video_label.pack(expand=True, fill="both")
 
         self.intro_playing = True
@@ -92,7 +92,7 @@ class NotYUpscalerZAI(ctk.CTk):
     def play_intro_with_sound(self):
         if not os.path.exists("intro.mp4"):
             self.after(0, lambda: self.video_label.configure(text="intro.mp4 missing"))
-            self.after(0, self.close_intro)
+            self.after(2000, self.finish_intro)
             return
 
         try:
@@ -106,7 +106,7 @@ class NotYUpscalerZAI(ctk.CTk):
                 pygame.mixer.music.play()
 
             cap = cv2.VideoCapture("intro.mp4")
-            fps = cap.get(cv2.CAP_PROP_FPS) or 30
+            fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
             delay_ms = int(1000 / fps)
 
             def update_frame():
@@ -118,20 +118,21 @@ class NotYUpscalerZAI(ctk.CTk):
                 if ret:
                     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                     pil = Image.fromarray(rgb)
-                    pil = pil.resize((900, 600), Image.LANCZOS)
-                    cimg = ctk.CTkImage(pil, size=(900, 600))
+                    pil = pil.resize((self.winfo_width(), self.winfo_height()), Image.LANCZOS)
+                    cimg = ctk.CTkImage(pil, size=(self.winfo_width(), self.winfo_height()))
                     if self.video_label.winfo_exists():
                         self.after(0, lambda i=cimg: self.video_label.configure(image=i))
                     self.after(delay_ms, update_frame)
                 else:
                     self._cleanup_intro(cap, audio_file)
+                    self.after(0, self.finish_intro)
 
             self.after(delay_ms, update_frame)
 
         except Exception as e:
             print("Intro error:", str(e))
             self.after(0, lambda: self.video_label.configure(text=f"Error: {str(e)}"))
-            self.after(1500, self.close_intro)
+            self.after(2000, self.finish_intro)
 
     def _cleanup_intro(self, cap, audio_file):
         try:
@@ -143,17 +144,31 @@ class NotYUpscalerZAI(ctk.CTk):
                 os.remove(audio_file)
         except:
             pass
-        self.after(0, self.close_intro)
 
-    def close_intro(self):
+    def finish_intro(self):
         self.intro_playing = False
-        if hasattr(self, 'intro_win') and self.intro_win.winfo_exists():
-            self.intro_win.destroy()
+        if hasattr(self, 'intro_frame') and self.intro_frame.winfo_exists():
+            self.intro_frame.destroy()
+        # Show main UI with fade-in effect
+        self.main_frame.pack(fill="both", expand=True)
+        self.attributes('-alpha', 0.0)
+        self._fade_in(0.0)
+
+    def _fade_in(self, alpha):
+        alpha += 0.08
+        if alpha < 1.0:
+            self.attributes('-alpha', alpha)
+            self.after(40, lambda: self._fade_in(alpha))
+        else:
+            self.attributes('-alpha', 1.0)
 
     def load_config(self):
         if os.path.exists(CONFIG_FILE):
-            with open(CONFIG_FILE, "r") as f:
-                self.config = json.load(f)
+            try:
+                with open(CONFIG_FILE, "r") as f:
+                    self.config = json.load(f)
+            except:
+                self.config = {"specs_read": False, "preferred_device": "Auto"}
         else:
             self.config = {"specs_read": False, "preferred_device": "Auto"}
 
