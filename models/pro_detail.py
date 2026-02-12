@@ -9,4 +9,4 @@ class ProDetailEnhancer(BaseEnhancer):
 
     def get_ffmpeg_vf(self, tw, th):
         vf = super().get_ffmpeg_vf(tw, th)
-        return f"hqdn3d=4:4:3:3,unsharp=5:5:1.2,{vf}"
+        return f"hqdn3d=4:4:3:3,unsharp=5:5:1.5,{vf}"

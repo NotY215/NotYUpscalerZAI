@@ -7,18 +7,15 @@ class ImageEnhanceModel(BaseEnhancer):
         if frame is None or frame.size == 0:
             return frame
 
-        # Stronger denoising + detail for images
         frame = cv2.bilateralFilter(frame, d=9, sigmaColor=75, sigmaSpace=75)
         try:
             frame = cv2.fastNlMeansDenoisingColored(frame, None, 10, 10, 7, 21)
         except:
             pass
 
-        # Extra sharpening
-        kernel = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
+        kernel = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]], dtype=np.float32)
         frame = cv2.filter2D(frame, -1, kernel)
 
-        # Base enhancements
         return super().enhance_frame(frame)
 
     def get_ffmpeg_vf(self, tw, th):

@@ -59,9 +59,9 @@ class NotYUpscalerZAI(ctk.CTk):
         self.playing = False
         self.current_frame_bgr = None
         self.output_folder = None
+        self.current_preview_image = None  # Keep strong ref to prevent garbage collection
 
         self.current_model_dict = VIDEO_MODELS
-        self.model_menu = None
 
         self.load_config()
         self.detect_specs()
@@ -94,7 +94,6 @@ class NotYUpscalerZAI(ctk.CTk):
             self.recommended = "Auto"
 
     def create_ui(self):
-        # Top bar
         top_bar = ctk.CTkFrame(self, height=60, fg_color="#0f172a")
         top_bar.pack(fill="x")
         top_bar.pack_propagate(False)
@@ -119,7 +118,6 @@ class NotYUpscalerZAI(ctk.CTk):
         main.grid_columnconfigure(0, weight=3)
         main.grid_columnconfigure(1, weight=1)
 
-        # Preview Area
         preview_area = ctk.CTkFrame(main, fg_color="#0f172a", corner_radius=12)
         preview_area.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
 
@@ -159,7 +157,13 @@ class NotYUpscalerZAI(ctk.CTk):
                                        text_color="gray")
         self.info_label.grid(row=2, column=0, columnspan=2, pady=8)
 
-        # Right sidebar
+        # Bottom copyright
+        bottom_bar = ctk.CTkFrame(self, height=30, fg_color="#0f172a")
+        bottom_bar.pack(fill="x", side="bottom")
+        ctk.CTkLabel(bottom_bar, text="GNU Copyright By NotY215", font=ctk.CTkFont(size=12),
+                     text_color="gray").pack(pady=6)
+
+        # Sidebar
         sidebar = ctk.CTkFrame(main, fg_color="#1e293b", corner_radius=12)
         sidebar.grid(row=0, column=1, padx=10, pady=10, sticky="nsew")
 
@@ -193,7 +197,6 @@ class NotYUpscalerZAI(ctk.CTk):
         ctk.CTkOptionMenu(self.device_frame, values=["Auto", "GPU (if available)", "CPU only"],
                           variable=self.device_var, fg_color="#7b00ff").pack(fill="x", pady=5)
 
-        # Model selector
         ctk.CTkLabel(sidebar, text="AI Model").pack(anchor="w", padx=25, pady=(15,5))
         self.model_var = ctk.StringVar(value=list(self.current_model_dict.keys())[0])
         self.model_menu = ctk.CTkOptionMenu(sidebar, values=list(self.current_model_dict.keys()),
@@ -215,8 +218,8 @@ class NotYUpscalerZAI(ctk.CTk):
         adj.pack(pady=15, padx=25, fill="x")
         ctk.CTkLabel(adj, text="Adjustments", font=ctk.CTkFont(size=15, weight="bold")).pack(pady=10)
 
-        self.sharpen_s   = self.add_slider(adj, "Sharpen",   0.5, 4.0, 1.8)
-        self.contrast_s  = self.add_slider(adj, "Contrast",  0.7, 2.0, 1.25)
+        self.sharpen_s   = self.add_slider(adj, "Sharpen",   0.5, 4.0, 2.2)
+        self.contrast_s  = self.add_slider(adj, "Contrast",  0.7, 2.0, 1.35)
         self.sat_s       = self.add_slider(adj, "Saturation",0.5, 2.0, 1.15)
         self.glow_s      = self.add_slider(adj, "Glow",      0.0, 1.2, 0.4)
 
@@ -263,7 +266,8 @@ class NotYUpscalerZAI(ctk.CTk):
         self.live_enabled = not self.live_enabled
         if self.live_enabled:
             self.preview_toggle_btn.configure(text="Live Preview: ENABLED", fg_color="#00e5ff")
-            self.live_update()
+            if self.current_frame_bgr is not None:
+                self.live_update()
         else:
             self.preview_toggle_btn.configure(text="Live Preview: DISABLED", fg_color="gray20")
             self.enh_label.configure(text="Live preview disabled", image=None)
@@ -277,7 +281,7 @@ class NotYUpscalerZAI(ctk.CTk):
 
         if self.is_video:
             self.current_model_dict = VIDEO_MODELS
-            default = "Medium (Pro Detail)"
+            default = "High (Ultra Native)"
         else:
             self.current_model_dict = IMAGE_MODEL
             default = "Image Enhance"
@@ -335,6 +339,7 @@ class NotYUpscalerZAI(ctk.CTk):
         pil = pil.resize((640, 400), Image.LANCZOS)
         cimg = ctk.CTkImage(pil, size=(640, 400))
         label.configure(image=cimg, text="")
+        self.current_preview_image = pil  # Keep reference to prevent garbage collection
 
     def toggle_play(self):
         if not self.is_video: return
@@ -393,26 +398,33 @@ class NotYUpscalerZAI(ctk.CTk):
                 nw, nh = self.calculate_size(w, h)
                 up = cv2.resize(img, (nw, nh), interpolation=cv2.INTER_LANCZOS4)
                 enhanced = model.enhance_frame(up)
-                cv2.imwrite(out_path, enhanced)
+                if not cv2.imwrite(out_path, enhanced):
+                    raise RuntimeError("cv2.imwrite failed")
             else:
                 cap = cv2.VideoCapture(self.current_path)
                 w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
                 h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                fps = cap.get(cv2.CAP_PROP_FPS)
                 cap.release()
                 nw, nh = self.calculate_size(w, h)
                 vf = model.get_ffmpeg_vf(nw, nh) if hasattr(model, 'get_ffmpeg_vf') else f"scale={nw}:{nh}"
+                vf = f"minterpolate=fps=60:mi_mode=blend,{vf}"
+
                 cmd = [
                     "ffmpeg", "-i", self.current_path,
                     "-vf", vf,
-                    "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+                    "-r", "60",
+                    "-c:v", "libx264", "-preset", "medium", "-crf", "17",
                     "-c:a", "aac", "-b:a", "192k",
                     "-y", out_path
                 ]
                 result = subprocess.run(cmd, capture_output=True, text=True)
                 if result.returncode != 0:
-                    raise RuntimeError(f"FFmpeg failed:\n{result.stderr[:300]}")
+                    print("FFmpeg error:", result.stderr)
+                    raise RuntimeError(f"FFmpeg failed:\n{result.stderr[:400]}")
 
             self.after(0, lambda: messagebox.showinfo("Success", f"Saved to:\n{out_path}"))
+            self.after(200, lambda: self.auto_open_output(out_path))
         except Exception as e:
             self.after(0, lambda msg=str(e): messagebox.showerror("Export Failed", msg))
         finally:
