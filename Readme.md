@@ -1,7 +1,7 @@
 # NotYUpscalerZAI
 
 <p align="center">
-  <img src="logo.ico" alt="NotYUpscalerZAI Logo" width="120">
+  <img src="[logo.ico](https://freeimage.host/i/q9ls4O7)" alt="NotYUpscalerZAI Logo" width="120">
 </p>
 
 <h3 align="center">
