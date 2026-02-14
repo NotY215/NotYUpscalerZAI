@@ -8,6 +8,7 @@ import threading
 import psutil
 import subprocess
 from PIL import Image
+import re
 import time
 
 ctk.set_appearance_mode("dark")
@@ -60,6 +61,7 @@ class NotYUpscalerZAI(ctk.CTk):
 
         self.export_running = False
         self.export_cancel_requested = False
+        self.export_process = None
 
         self.load_config()
         self.detect_specs()
@@ -160,44 +162,52 @@ class NotYUpscalerZAI(ctk.CTk):
                                        text_color="#8b949e")
         self.info_label.grid(row=2, column=0, columnspan=2, pady=8)
 
-        # Right: Sidebar (with Render + Cancel + Progress)
+        # Bottom-left controls (LHS bottom)
+        bottom_left = ctk.CTkFrame(left, fg_color="#161b22")
+        bottom_left.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(12,16), padx=12)
+
+        self.export_btn = ctk.CTkButton(bottom_left, text="Export", height=48,
+                                        fg_color="#1f6feb", hover_color="#388bfd",
+                                        font=ctk.CTkFont(size=15, weight="bold"),
+                                        command=self.start_export)
+        self.export_btn.pack(side="left", padx=8, fill="x", expand=True)
+
+        self.preview_toggle_btn = ctk.CTkButton(bottom_left, text="Live Preview: OFF",
+                                                fg_color="#21262d", hover_color="#30363d",
+                                                command=self.toggle_live_preview, height=48)
+        self.preview_toggle_btn.pack(side="right", padx=8)
+
+        # Right sidebar
         right = ctk.CTkScrollableFrame(content, width=380, fg_color="#161b22", corner_radius=12)
         right.grid(row=0, column=1, sticky="nsew", padx=(0,16), pady=16)
 
-        # File section
         ctk.CTkLabel(right, text="INPUT & OUTPUT", font=ctk.CTkFont(size=15, weight="bold")).pack(anchor="w", padx=24, pady=(24,8))
 
         ctk.CTkButton(right, text="📂  Select Image / Video", height=52,
                       font=ctk.CTkFont(size=15, weight="bold"),
                       fg_color=self.accent, text_color="#000000",
-                      command=lambda: self.select_file()).pack(pady=8, padx=24, fill="x")
+                      command=self.select_file).pack(pady=8, padx=24, fill="x")
 
         self.file_name = ctk.CTkLabel(right, text="No file selected", text_color="#8b949e")
         self.file_name.pack(pady=8)
 
         ctk.CTkButton(right, text="📁  Choose Output Folder", height=48,
                       fg_color="#238636", hover_color="#2ea043",
-                      command=lambda: self.choose_output_folder()).pack(pady=8, padx=24, fill="x")
+                      command=self.choose_output_folder).pack(pady=8, padx=24, fill="x")
 
         self.output_status = ctk.CTkLabel(right, text="Output: same as input", text_color="#8b949e")
         self.output_status.pack(pady=8)
 
-        # Render & Progress section
-        ctk.CTkLabel(right, text="RENDER & EXPORT", font=ctk.CTkFont(size=15, weight="bold")).pack(anchor="w", padx=24, pady=(24,8))
-
-        self.render_btn = ctk.CTkButton(right, text="🎬  Render & Export", height=52,
-                                        fg_color="#1f6feb", hover_color="#388bfd",
-                                        font=ctk.CTkFont(size=16, weight="bold"),
-                                        command=lambda: self.start_export())
-        self.render_btn.pack(pady=8, padx=24, fill="x")
+        # Export Progress Section
+        ctk.CTkLabel(right, text="EXPORT PROGRESS", font=ctk.CTkFont(size=15, weight="bold")).pack(anchor="w", padx=24, pady=(24,8))
 
         self.progress_bar = ctk.CTkProgressBar(right, width=320, height=20, mode="determinate",
                                                fg_color="#21262d", progress_color=self.success)
         self.progress_bar.pack(pady=12, padx=24)
         self.progress_bar.set(0)
-        self.progress_bar.pack_forget()  # hidden initially
+        self.progress_bar.pack_forget()
 
-        self.progress_label = ctk.CTkLabel(right, text="0%", font=ctk.CTkFont(size=14, weight="bold"),
+        self.progress_label = ctk.CTkLabel(right, text="0%", font=ctk.CTkFont(size=16, weight="bold"),
                                            text_color=self.success)
         self.progress_label.pack(pady=4)
         self.progress_label.pack_forget()
@@ -208,7 +218,7 @@ class NotYUpscalerZAI(ctk.CTk):
         self.cancel_btn.pack(pady=8, padx=24, fill="x")
         self.cancel_btn.pack_forget()
 
-        # Settings
+        # Settings section
         ctk.CTkLabel(right, text="SETTINGS", font=ctk.CTkFont(size=15, weight="bold")).pack(anchor="w", padx=24, pady=(24,8))
 
         ctk.CTkLabel(right, text="Model", font=ctk.CTkFont(size=14)).pack(anchor="w", padx=24, pady=(8,4))
@@ -229,11 +239,6 @@ class NotYUpscalerZAI(ctk.CTk):
         self.sharpen_s = ctk.CTkSlider(adj, from_=0.5, to=4.0, command=lambda v: self.live_update())
         self.sharpen_s.set(2.2)
         self.sharpen_s.pack(padx=20, pady=(0,16), fill="x")
-
-        self.preview_toggle_btn = ctk.CTkButton(right, text="Live Preview: DISABLED",
-                                                fg_color="#21262d", hover_color="#30363d",
-                                                command=lambda: self.toggle_live_preview(), height=48)
-        self.preview_toggle_btn.pack(pady=16, padx=24, fill="x")
 
         self.status = ctk.CTkLabel(right, text="", text_color=self.accent, font=ctk.CTkFont(size=13))
         self.status.pack(pady=16)
@@ -332,30 +337,41 @@ class NotYUpscalerZAI(ctk.CTk):
         except Exception as e:
             print("Live preview error:", str(e))
 
+    def toggle_live_preview(self):
+        self.live_enabled = not self.live_enabled
+        txt = "ON" if self.live_enabled else "OFF"
+        col = self.accent if self.live_enabled else "#21262d"
+        self.preview_toggle_btn.configure(text=f"Live Preview: {txt}", fg_color=col)
+        if self.live_enabled and self.current_frame_bgr is not None:
+            self.live_update()
+        elif not self.live_enabled:
+            self.enh_label.configure(text="Live preview disabled", image=None)
+
     def start_export(self):
         if self.export_running:
             messagebox.showwarning("Already Exporting", "An export process is already running.\nPlease wait or cancel it first.")
             return
 
         if not self.current_path:
-            messagebox.showwarning("No file", "Select a file first")
+            messagebox.showwarning("No file", "Please select a file first")
             return
 
         self.export_running = True
         self.export_cancel_requested = False
-        self.render_btn.configure(state="disabled", text="Exporting...", fg_color="#444c56")
+        self.export_btn.configure(state="disabled", text="Exporting...", fg_color="#444c56")
         self.progress_bar.pack(pady=12, padx=24)
         self.progress_label.pack(pady=4)
         self.cancel_btn.pack(pady=8, padx=24, fill="x")
         self.progress_bar.set(0)
         self.progress_label.configure(text="0%")
+        self.status.configure(text="Starting export...")
 
         threading.Thread(target=self.export_thread, daemon=True).start()
 
     def export_thread(self):
-        try:
-            out_path = self.get_output_path(self.current_path)
+        out_path = self.get_output_path(self.current_path)
 
+        try:
             if not self.is_video:
                 img = cv2.imread(self.current_path)
                 if img is None:
@@ -369,6 +385,25 @@ class NotYUpscalerZAI(ctk.CTk):
                 cv2.imwrite(out_path, enhanced)
                 self.after(0, lambda: self._update_progress(100))
             else:
+                video_bitrate = 15000
+                audio_bitrate = 320
+
+                try:
+                    cmd_v = ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=bit_rate", "-of", "default=noprint_wrappers=1:nokey=1", self.current_path]
+                    vbr = subprocess.check_output(cmd_v, stderr=subprocess.STDOUT).decode().strip()
+                    if vbr.isdigit():
+                        video_bitrate = int(vbr) // 1000
+                except:
+                    pass
+
+                try:
+                    cmd_a = ["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=bit_rate", "-of", "default=noprint_wrappers=1:nokey=1", self.current_path]
+                    abr = subprocess.check_output(cmd_a, stderr=subprocess.STDOUT).decode().strip()
+                    if abr.isdigit():
+                        audio_bitrate = int(abr) // 1000
+                except:
+                    pass
+
                 cap = cv2.VideoCapture(self.current_path)
                 total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
                 w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -382,40 +417,51 @@ class NotYUpscalerZAI(ctk.CTk):
                 cmd = [
                     "ffmpeg", "-i", self.current_path,
                     "-vf", vf,
-                    "-c:v", "libx264", "-preset", "fast", "-crf", "18",
-                    "-c:a", "aac", "-b:a", "192k",
+                    "-c:v", "libx264", "-preset", "medium",
+                    "-b:v", f"{video_bitrate}k",
+                    "-maxrate", f"{int(video_bitrate * 1.5)}k",
+                    "-bufsize", f"{int(video_bitrate * 2)}k",
+                    "-c:a", "aac", "-b:a", f"{audio_bitrate}k",
+                    "-map", "0",
                     "-y", out_path
                 ]
 
-                process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
+                # Run FFmpeg hidden (no console window)
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                startupinfo.wShowWindow = subprocess.SW_HIDE
 
-                frame_count = 0
-                while process.poll() is None:
+                self.export_process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                                       text=True, bufsize=1, startupinfo=startupinfo)
+
+                while self.export_process.poll() is None:
                     if self.export_cancel_requested:
-                        process.terminate()
+                        self.export_process.terminate()
                         try:
-                            os.remove(out_path)
+                            time.sleep(0.5)
+                            if os.path.exists(out_path):
+                                os.remove(out_path)
                         except:
                             pass
                         self.after(0, lambda: messagebox.showinfo("Cancelled", "Export cancelled by user."))
                         break
 
-                    line = process.stderr.readline()
+                    line = self.export_process.stderr.readline()
                     if "frame=" in line:
                         try:
-                            frame = int(line.split("frame=")[1].split()[0])
+                            frame = int(re.search(r'frame=\s*(\d+)', line).group(1))
                             percent = min(100, int((frame / total_frames) * 100))
                             self.after(0, lambda p=percent: self._update_progress(p))
                         except:
                             pass
-                    time.sleep(0.3)
+                    time.sleep(0.2)
 
-                if process.returncode != 0 and not self.export_cancel_requested:
-                    raise RuntimeError(f"FFmpeg failed (code {process.returncode})")
+                if self.export_process.returncode != 0 and not self.export_cancel_requested:
+                    raise RuntimeError(f"FFmpeg failed (code {self.export_process.returncode})")
 
                 if not self.export_cancel_requested:
                     self.after(0, lambda: self._update_progress(100))
-                    self.after(0, lambda: messagebox.showinfo("Success", f"Saved to:\n{out_path}"))
+                    self.after(0, lambda: messagebox.showinfo("Success", f"Exported to:\n{out_path}"))
 
         except Exception as e:
             self.after(0, lambda msg=str(e): messagebox.showerror("Export Failed", msg))
@@ -424,26 +470,25 @@ class NotYUpscalerZAI(ctk.CTk):
 
     def _update_progress(self, percent):
         if hasattr(self, 'progress_bar') and self.progress_bar.winfo_exists():
-            self.progress_bar.set(percent / 100)
+            self.progress_bar.set(percent / 100.0)
             self.progress_label.configure(text=f"{percent}%")
 
     def _finish_export_ui(self):
         self.export_running = False
         self.export_cancel_requested = False
-        self.render_btn.configure(state="normal", text="🎬  Render & Export", fg_color="#1f6feb")
-        if hasattr(self, 'progress_bar'):
-            self.progress_bar.pack_forget()
-        if hasattr(self, 'progress_label'):
-            self.progress_label.pack_forget()
-        if hasattr(self, 'cancel_btn'):
-            self.cancel_btn.pack_forget()
+        self.export_process = None
+        self.export_btn.configure(state="normal", text="Export", fg_color="#1f6feb")
+        self.progress_bar.pack_forget()
+        self.progress_label.pack_forget()
+        self.cancel_btn.pack_forget()
         self.status.configure(text="Export finished")
 
     def cancel_export(self):
-        if not self.export_running:
+        if not self.export_running or not self.export_process:
             return
         self.export_cancel_requested = True
-        self.status.configure(text="Cancelling...", text_color=self.danger)
+        self.status.configure(text="Cancelling export...", text_color=self.danger)
+        self.progress_label.configure(text="Cancelling...")
 
     def calculate_size(self, w, h):
         t = self.target_var.get()
@@ -477,16 +522,6 @@ class NotYUpscalerZAI(ctk.CTk):
         self.status.configure(text=txt)
         self.config["specs_read"] = True
         self.save_config()
-
-    def toggle_live_preview(self):
-        self.live_enabled = not self.live_enabled
-        txt = "ENABLED" if self.live_enabled else "DISABLED"
-        col = self.accent if self.live_enabled else "#21262d"
-        self.preview_toggle_btn.configure(text=f"Live Preview: {txt}", fg_color=col)
-        if self.live_enabled and self.current_frame_bgr is not None:
-            self.live_update()
-        elif not self.live_enabled:
-            self.enh_label.configure(text="Live preview disabled", image=None)
 
 if __name__ == "__main__":
     app = NotYUpscalerZAI()
