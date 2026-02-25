@@ -12,36 +12,25 @@ import re
 import time
 import math
 import sys
+from io import BytesIO
 
-# Auto-install ffmpeg-python if missing
-try:
-    import ffmpeg
-except ImportError:
-    print("Installing ffmpeg-python...")
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "ffmpeg-python"])
-    import ffmpeg
+# Auto-install missing packages
+for pkg in ["ffmpeg-python", "google-api-python-client", "google-auth-oauthlib", "google-auth-httplib2"]:
+    try:
+        __import__(pkg.replace("-", "_"))
+    except ImportError:
+        print(f"Installing {pkg}...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", pkg])
 
-# Auto-install google libraries if missing
-try:
-    from googleapiclient.discovery import build
-    from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
-    from google.oauth2.credentials import Credentials
-    from google_auth_oauthlib.flow import InstalledAppFlow
-    from google.auth.transport.requests import Request
-    from google.auth.exceptions import RefreshError
-    from io import BytesIO
-except ImportError:
-    print("Installing Google API libraries...")
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "google-api-python-client", "google-auth-oauthlib", "google-auth-httplib2"])
-    from googleapiclient.discovery import build
-    from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
-    from google.oauth2.credentials import Credentials
-    from google_auth_oauthlib.flow import InstalledAppFlow
-    from google.auth.transport.requests import Request
-    from google.auth.exceptions import RefreshError
-    from io import BytesIO
+import ffmpeg
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+from google.auth.transport.requests import Request
+from google.auth.exceptions import RefreshError
 
-# Check if real ffmpeg binary exists
+# Check real ffmpeg binary
 def find_ffmpeg():
     try:
         subprocess.run(["ffmpeg", "-version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
@@ -51,9 +40,8 @@ def find_ffmpeg():
 
 if not find_ffmpeg():
     print("WARNING: ffmpeg not found in PATH.")
-    print("Download from https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip")
-    print("Extract and add the 'bin' folder to your system PATH.")
-    print("Then restart your terminal and run the app again.")
+    print("Download: https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip")
+    print("Add 'bin' folder to PATH, restart terminal, then run again.")
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
@@ -70,7 +58,9 @@ IMAGE_MODEL = {
 
 CONFIG_FILE = "config.json"
 TOKEN_FILE = "token.json"
-CLIENT_FILE = "client.json"  # User must provide this from Google Cloud Console
+CLIENT_FILE = "client.json"  # You must create this from Google Cloud Console
+
+SCOPES = ['https://www.googleapis.com/auth/drive']
 
 class NotYUpscalerZAI(ctk.CTk):
     def __init__(self):
@@ -82,8 +72,8 @@ class NotYUpscalerZAI(ctk.CTk):
         if os.path.exists("logo.ico"):
             try:
                 self.iconbitmap("logo.ico")
-            except:
-                pass
+            except Exception as e:
+                print("Logo load failed:", e)
 
         self.configure(fg_color="#0d1117")
 
@@ -112,11 +102,10 @@ class NotYUpscalerZAI(ctk.CTk):
         self.drive_service = None
         self.credentials = None
 
-        self.mode = "Local"  # Default mode
+        self.mode = "Local"  # Default
 
         self.load_config()
         self.detect_specs()
-
         self.create_ui()
 
     def load_config(self):
@@ -210,7 +199,7 @@ class NotYUpscalerZAI(ctk.CTk):
         self.play_btn.pack(side="left", padx=8)
 
         self.timeline = ctk.CTkSlider(ctrl, from_=0, to=100, command=self.on_timeline_change,
-                                      height=24, button_length=32, button_hover_color=self.accent)
+                                      height=24, button_length=32, fg_color="#21262d", progress_color=self.accent)
         self.timeline.pack(side="left", fill="x", expand=True, padx=12)
         self.timeline.set(0)
 
@@ -297,6 +286,43 @@ class NotYUpscalerZAI(ctk.CTk):
 
         self.status = ctk.CTkLabel(right, text="", text_color=self.accent, font=ctk.CTkFont(size=13))
         self.status.pack(pady=16)
+
+    def set_mode(self, mode):
+        self.mode = mode
+        if mode == "Local":
+            self.mode_local.configure(fg_color=self.accent, text_color="#000000")
+            self.mode_online.configure(fg_color="#21262d", text_color="#8b949e")
+        else:
+            self.mode_local.configure(fg_color="#21262d", text_color="#8b949e")
+            self.mode_online.configure(fg_color=self.accent, text_color="#000000")
+            if not self.drive_service:
+                self.login_google()
+
+    def login_google(self):
+        if not os.path.exists(CLIENT_FILE):
+            messagebox.showerror("Missing client.json", "client.json not found.\n\nCreate it from:\nhttps://console.cloud.google.com/apis/credentials\n(Enable Drive API, OAuth 2.0 Client ID, Desktop app)")
+            return
+
+        scopes = SCOPES
+        if os.path.exists(TOKEN_FILE):
+            self.credentials = Credentials.from_authorized_user_file(TOKEN_FILE, scopes)
+        if not self.credentials or not self.credentials.valid:
+            if self.credentials and self.credentials.expired and self.credentials.refresh_token:
+                try:
+                    self.credentials.refresh(Request())
+                except RefreshError:
+                    os.remove(TOKEN_FILE)
+                    self.credentials = None
+
+        if not self.credentials:
+            flow = InstalledAppFlow.from_client_secrets_file(CLIENT_FILE, scopes)
+            self.credentials = flow.run_local_server(port=0)
+            with open(TOKEN_FILE, 'w') as token:
+                token.write(self.credentials.to_json())
+
+        self.drive_service = build('drive', 'v3', credentials=self.credentials)
+        self.login_btn.configure(text="Logged In", fg_color=self.success, state="disabled")
+        messagebox.showinfo("Success", "Logged in to Google Drive")
 
     def select_file(self):
         path = filedialog.askopenfilename(filetypes=[("Media","*.jpg *.jpeg *.png *.webp *.mp4 *.mkv *.avi *.mov")])
@@ -398,21 +424,6 @@ class NotYUpscalerZAI(ctk.CTk):
         if self.playing:
             self.update_video_frame()
 
-    def open_in_system_player(self):
-    if not self.current_path:
-        messagebox.showwarning("No file", "Please select a file first.")
-        return
-
-    try:
-        if sys.platform.startswith('win'):
-            os.startfile(self.current_path)
-        elif sys.platform.startswith('darwin'):  # macOS
-            subprocess.run(['open', self.current_path])
-        else:  # Linux
-            subprocess.run(['xdg-open', self.current_path])
-    except Exception as e:
-        messagebox.showerror("Error", f"Could not open file:\n{str(e)}")
-
     def on_timeline_change(self, val):
         if self.is_video:
             self.update_video_frame()
@@ -450,7 +461,10 @@ class NotYUpscalerZAI(ctk.CTk):
             messagebox.showwarning("No file", "Please select a file first")
             return
 
-        # Disable all buttons except cancel
+        if self.mode == "Online" and not self.drive_service:
+            messagebox.showwarning("Login Required", "Please login to Google first for Online mode.")
+            return
+
         self.disable_buttons(True)
 
         self.export_running = True
@@ -474,10 +488,7 @@ class NotYUpscalerZAI(ctk.CTk):
         self.mode_online.configure(state=state)
         self.login_btn.configure(state=state)
         self.model_menu.configure(state=state)
-        self.target_var.configure(state=state)  # Note: OptionMenu doesn't have state, so hide or ignore
-        # Disable sliders
-        for s in [self.sharpen_s]:
-            s.configure(state=state)
+        # OptionMenu doesn't support state=disabled, so we rely on export_running check
 
     def export_thread(self):
         out_path = self.get_output_path(self.current_path)
@@ -507,7 +518,7 @@ class NotYUpscalerZAI(ctk.CTk):
             kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
             enhanced = cv2.filter2D(up, -1, kernel)
             if not cv2.imwrite(out_path, enhanced):
-                raise RuntimeError("cv2.imwrite failed - check path/permissions")
+                raise RuntimeError("cv2.imwrite failed")
             self.after(0, lambda: self._update_progress(100))
         else:
             cap = cv2.VideoCapture(self.current_path)
@@ -573,9 +584,9 @@ class NotYUpscalerZAI(ctk.CTk):
                         pass
                 time.sleep(0.2)
 
-                if self.export_process.returncode != 0 and not self.export_cancel_requested:
-                    err = self.export_process.stderr.read()
-                    raise RuntimeError(f"FFmpeg failed:\n{err[:400]}")
+            if self.export_process.returncode != 0 and not self.export_cancel_requested:
+                err = self.export_process.stderr.read()
+                raise RuntimeError(f"FFmpeg failed:\n{err[:400]}")
 
             if not self.export_cancel_requested:
                 self.after(0, lambda: self._update_progress(100))
@@ -585,31 +596,32 @@ class NotYUpscalerZAI(ctk.CTk):
         if not self.drive_service:
             raise RuntimeError("Not logged in to Google")
 
-        file_size = os.path.getsize(self.current_path) / (1024*1024)
-        if file_size > 500:
-            raise ValueError("Video file exceeds 500MB limit for Online mode")
+        file_size_mb = os.path.getsize(self.current_path) / (1024*1024)
+        if file_size_mb > 500:
+            raise ValueError(f"File size {file_size_mb:.1f} MB exceeds 500 MB limit for Online mode")
 
         self.status.configure(text="Uploading video to Drive...")
         video_id = self.upload_to_drive(self.current_path, "video")
 
-        self.status.configure(text="Generating Colab notebook...")
+        self.status.configure(text="Creating Colab notebook...")
         notebook_code = self.generate_colab_notebook(video_id)
-        notebook_path = "temp_notebook.ipynb"
-        with open(notebook_path, "w") as f:
+        notebook_path = "temp_colab_notebook.ipynb"
+        with open(notebook_path, "w", encoding="utf-8") as f:
             f.write(notebook_code)
         notebook_id = self.upload_to_drive(notebook_path, "notebook")
         os.remove(notebook_path)
 
         colab_link = f"https://colab.research.google.com/drive/{notebook_id}"
-        self.status.configure(text="Open Colab and run all cells...")
-        messagebox.showinfo("Open Colab", f"Open this link in browser:\n{colab_link}\nRun all cells, then click 'Check for Output' in app.")
+        self.status.configure(text="Colab ready. Open link below and run all cells.")
+        messagebox.showinfo("Colab Ready", f"Open this link in your browser:\n{colab_link}\n\nRun all cells in Colab.\nAfter finish, click 'Check for Output' in this app.")
 
-        self.export_btn.configure(text="Check for Output", state="normal", fg_color=self.accent, command=self.check_online_output)
+        self.export_btn.configure(text="Check for Output", state="normal", fg_color=self.accent,
+                                  command=lambda: self.check_online_output(out_path))
 
     def upload_to_drive(self, path, file_type):
         metadata = {
             'name': os.path.basename(path),
-            'mimeType': 'application/octet-stream' if file_type == "video" else 'application/vnd.google-apps.script+json'
+            'mimeType': 'application/octet-stream' if file_type == "video" else 'application/vnd.google.colaboratory'
         }
         media = MediaFileUpload(path, resumable=True)
         file = self.drive_service.files().create(body=metadata, media_body=media, fields='id').execute()
@@ -621,108 +633,126 @@ class NotYUpscalerZAI(ctk.CTk):
         if kernel_size % 2 == 0:
             kernel_size += 1
 
-        code = f"""
-from google.colab import drive
-drive.mount('/content/drive')
-
-import cv2
-import numpy as np
-import os
-import subprocess
-
-video_path = '/content/drive/MyDrive/{os.path.basename(self.current_path)}'
-out_path = '/content/drive/MyDrive/{os.path.basename(self.get_output_path(self.current_path))}'
-
-cap = cv2.VideoCapture(video_path)
-w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-cap.release()
-
-nw = int(w * 2)  # Example upscale, adjust as needed
-nh = int(h * 2)
-
-vf = f"scale={nw}:{nh}:flags=lanczos,unsharp=7:7:{sharpen*1.8}"
-
-cmd = [
-    "ffmpeg", "-i", video_path,
-    "-vf", vf,
-    "-c:v", "libx264", "-preset", "medium", "-crf", "17",
-    "-c:a", "aac", "-b:a", "192k",
-    "-y", out_path
-]
-
-subprocess.run(cmd)
-
-# Delete temp video
-os.remove(video_path)
-"""
         notebook_json = {
+            "nbformat": 4,
+            "nbformat_minor": 0,
+            "metadata": {"colab": {"name": "NotYUpscalerZAI Colab", "provenance": []}},
             "cells": [
                 {
+                    "cell_type": "markdown",
+                    "source": ["# NotY Upscaler ZAI - Colab\nRun all cells below."]
+                },
+                {
                     "cell_type": "code",
-                    "execution_count": None,
-                    "metadata": {},
-                    "outputs": [],
-                    "source": code
+                    "source": [
+                        "!pip install opencv-python-headless\n",
+                        "import cv2\n",
+                        "import numpy as np\n",
+                        "from google.colab import drive\n",
+                        "drive.mount('/content/drive')\n",
+                        "video_path = '/content/drive/MyDrive/" + os.path.basename(self.current_path) + "'\n",
+                        "out_path = '/content/drive/MyDrive/" + os.path.basename(self.get_output_path(self.current_path)) + "'\n",
+                        "cap = cv2.VideoCapture(video_path)\n",
+                        "w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))\n",
+                        "h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))\n",
+                        "cap.release()\n",
+                        "nw, nh = " + str(self.calculate_size(int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))) + "\n",
+                        "vf = f'scale={nw}:{nh}:flags=lanczos,unsharp=7:7:" + str(sharpen*1.8) + "'\n",
+                        "!ffmpeg -i \"{video_path}\" -vf \"$vf\" -c:v libx264 -preset medium -crf 17 -c:a aac -b:a 192k -y \"{out_path}\"\n",
+                        "print('Done! Output saved to:', out_path)\n"
+                    ]
                 }
-            ],
-            "metadata": {},
-            "nbformat": 4,
-            "nbformat_minor": 4
+            ]
         }
-        return json.dumps(notebook_json)
+        return json.dumps(notebook_json, indent=2)
 
-    def check_online_output(self):
-        out_path = self.get_output_path(self.current_path)
+    def check_online_output(self, out_path):
         base = os.path.basename(out_path)
         files = self.drive_service.files().list(q=f"name='{base}'", fields="files(id, name)").execute()
-        if files.get('files'):
-            self.download_from_drive(files['files'][0]['id'], out_path)
-            self.drive_service.files().delete(fileId=files['files'][0]['id']).execute()
+        items = files.get('files', [])
+        if items:
+            file_id = items[0]['id']
+            self.download_from_drive(file_id, out_path)
+            self.drive_service.files().delete(fileId=file_id).execute()
             messagebox.showinfo("Success", f"Downloaded to:\n{out_path}")
             self._finish_export_ui()
         else:
-            messagebox.showinfo("No Output", "No output file found in Drive. Run Colab again.")
+            messagebox.showinfo("Waiting", "Output not found yet. Run Colab again and wait a bit.")
 
     def download_from_drive(self, file_id, out_path):
         request = self.drive_service.files().get_media(fileId=file_id)
         fh = BytesIO()
         downloader = MediaIoBaseDownload(fh, request)
         done = False
-        while done is False:
+        while not done:
             status, done = downloader.next_chunk()
         with open(out_path, 'wb') as f:
             f.write(fh.getvalue())
 
-    def set_mode(self, mode):
-        self.mode = mode
-        if mode == "Local":
-            self.mode_local.configure(fg_color=self.accent, text_color="#000000")
-            self.mode_online.configure(fg_color="#21262d", text_color="#8b949e")
-        else:
-            self.mode_local.configure(fg_color="#21262d", text_color="#8b949e")
-            self.mode_online.configure(fg_color=self.accent, text_color="#000000")
-            if not self.drive_service:
-                self.login_google()
+    def cancel_export(self):
+        if not self.export_running:
+            return
+        self.export_cancel_requested = True
+        self.status.configure(text="Cancelling...", text_color=self.danger)
+        self.progress_label.configure(text="Cancelling...")
 
-    def login_google(self):
-        if os.path.exists(CLIENT_FILE):
-            scopes = ['https://www.googleapis.com/auth/drive']
-            if os.path.exists(TOKEN_FILE):
-                self.credentials = Credentials.from_authorized_user_file(TOKEN_FILE, scopes)
-            if not self.credentials or not self.credentials.valid:
-                if self.credentials and self.credentials.expired and self.credentials.refresh_token:
-                    self.credentials.refresh(Request())
-                else:
-                    flow = InstalledAppFlow.from_client_secrets_file(CLIENT_FILE, scopes)
-                    self.credentials = flow.run_local_server(port=0)
-                with open(TOKEN_FILE, 'w') as token:
-                    token.write(self.credentials.to_json())
-            self.drive_service = build('drive', 'v3', credentials=self.credentials)
-            self.login_btn.configure(text="Logged In", fg_color=self.success)
-            messagebox.showinfo("Success", "Logged in to Google Drive")
-        else:
-            messagebox.showerror("Error", "client.json not found. Create one from Google Cloud Console.")
+        if self.mode == "Local" and self.export_process:
+            self.export_process.terminate()
+            time.sleep(0.5)
+            if os.path.exists(self.get_output_path(self.current_path)):
+                os.remove(self.get_output_path(self.current_path))
+
+        self._finish_export_ui()
+        messagebox.showinfo("Cancelled", "Export cancelled.")
+
+    def _finish_export_ui(self):
+        self.export_running = False
+        self.export_cancel_requested = False
+        self.export_process = None
+        self.export_btn.configure(state="normal", text="Export", fg_color="#1f6feb")
+        self.progress_bar.pack_forget()
+        self.progress_label.pack_forget()
+        self.cancel_btn.pack_forget()
+        self.status.configure(text="Export finished")
+        self.disable_buttons(False)
+
+    def _update_progress(self, percent):
+        if hasattr(self, 'progress_bar') and self.progress_bar.winfo_exists():
+            self.progress_bar.set(percent / 100.0)
+            self.progress_label.configure(text=f"{percent}%")
+
+    def calculate_size(self, w, h):
+        t = self.target_var.get()
+        targets = {"Fit 2K": (2560,1440), "Fit 3K": (2880,1620), "Fit 4K": (3840,2160)}
+        tw, th = targets.get(t, (3840,2160))
+        scale = min(tw / w, th / h)
+        return int(w * scale // 2 * 2), int(h * scale // 2 * 2)
+
+    def open_in_system_player(self):
+        if self.current_path and os.path.exists(self.current_path):
+            if os.name == 'nt':
+                os.startfile(self.current_path)
+            else:
+                subprocess.call(['xdg-open' if os.name == 'posix' else 'open', self.current_path])
+
+    def choose_output_folder(self):
+        folder = filedialog.askdirectory(title="Select Output Folder")
+        if folder:
+            self.output_folder = folder
+            self.output_status.configure(text=f"Output: {os.path.basename(folder)}", text_color=self.accent)
+
+    def get_output_path(self, input_path):
+        base, ext = os.path.splitext(os.path.basename(input_path))
+        filename = f"{base}_enhanced{ext if not self.is_video else '.mp4'}"
+        if self.output_folder and os.path.isdir(self.output_folder):
+            return os.path.join(self.output_folder, filename)
+        return os.path.join(os.path.dirname(input_path), filename)
+
+    def read_specs(self):
+        txt = f"RAM {self.ram_gb:.1f} GB • {self.cores} cores • {'CUDA' if self.has_cuda else 'CPU'}"
+        self.status.configure(text=txt)
+        self.config["specs_read"] = True
+        self.save_config()
 
 if __name__ == "__main__":
     app = NotYUpscalerZAI()
