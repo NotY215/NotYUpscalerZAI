@@ -398,6 +398,21 @@ class NotYUpscalerZAI(ctk.CTk):
         if self.playing:
             self.update_video_frame()
 
+    def open_in_system_player(self):
+    if not self.current_path:
+        messagebox.showwarning("No file", "Please select a file first.")
+        return
+
+    try:
+        if sys.platform.startswith('win'):
+            os.startfile(self.current_path)
+        elif sys.platform.startswith('darwin'):  # macOS
+            subprocess.run(['open', self.current_path])
+        else:  # Linux
+            subprocess.run(['xdg-open', self.current_path])
+    except Exception as e:
+        messagebox.showerror("Error", f"Could not open file:\n{str(e)}")
+
     def on_timeline_change(self, val):
         if self.is_video:
             self.update_video_frame()
