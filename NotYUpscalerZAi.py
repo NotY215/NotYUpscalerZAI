@@ -10,6 +10,30 @@ import subprocess
 from PIL import Image
 import re
 import time
+import math
+import sys
+
+# Auto-install ffmpeg-python if missing
+try:
+    import ffmpeg
+except ImportError:
+    print("Installing ffmpeg-python...")
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "ffmpeg-python"])
+    import ffmpeg
+
+# Check if real ffmpeg binary exists
+def find_ffmpeg():
+    try:
+        subprocess.run(["ffmpeg", "-version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        return True
+    except:
+        return False
+
+if not find_ffmpeg():
+    print("WARNING: ffmpeg not found in PATH.")
+    print("Download from https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip")
+    print("Extract and add the 'bin' folder to your system PATH.")
+    print("Then restart your terminal and run the app again.")
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
@@ -33,13 +57,13 @@ class NotYUpscalerZAI(ctk.CTk):
         self.geometry("1480x960")
         self.minsize(1280, 800)
 
-        self.configure(fg_color="#0d1117")
-
         if os.path.exists("logo.ico"):
             try:
                 self.iconbitmap("logo.ico")
             except:
                 pass
+
+        self.configure(fg_color="#0d1117")
 
         self.accent = "#00d4ff"
         self.success = "#00ff9d"
@@ -98,7 +122,6 @@ class NotYUpscalerZAI(ctk.CTk):
             self.recommended = "Auto"
 
     def create_ui(self):
-        # Top bar
         top = ctk.CTkFrame(self, height=64, fg_color="#161b22", corner_radius=0)
         top.pack(fill="x")
         top.pack_propagate(False)
@@ -110,7 +133,6 @@ class NotYUpscalerZAI(ctk.CTk):
                                         font=ctk.CTkFont(size=13), text_color="#8b949e")
         self.specs_label.pack(side="right", padx=24, pady=12)
 
-        # Main content
         content = ctk.CTkFrame(self, fg_color="#0d1117")
         content.pack(fill="both", expand=True)
 
@@ -118,7 +140,6 @@ class NotYUpscalerZAI(ctk.CTk):
         content.grid_columnconfigure(0, weight=1)
         content.grid_columnconfigure(1, weight=0)
 
-        # Left: Preview Area
         left = ctk.CTkFrame(content, fg_color="#161b22", corner_radius=12)
         left.grid(row=0, column=0, sticky="nsew", padx=16, pady=16)
 
@@ -162,7 +183,6 @@ class NotYUpscalerZAI(ctk.CTk):
                                        text_color="#8b949e")
         self.info_label.grid(row=2, column=0, columnspan=2, pady=8)
 
-        # Bottom-left controls (LHS bottom)
         bottom_left = ctk.CTkFrame(left, fg_color="#161b22")
         bottom_left.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(12,16), padx=12)
 
@@ -177,7 +197,6 @@ class NotYUpscalerZAI(ctk.CTk):
                                                 command=self.toggle_live_preview, height=48)
         self.preview_toggle_btn.pack(side="right", padx=8)
 
-        # Right sidebar
         right = ctk.CTkScrollableFrame(content, width=380, fg_color="#161b22", corner_radius=12)
         right.grid(row=0, column=1, sticky="nsew", padx=(0,16), pady=16)
 
@@ -198,7 +217,6 @@ class NotYUpscalerZAI(ctk.CTk):
         self.output_status = ctk.CTkLabel(right, text="Output: same as input", text_color="#8b949e")
         self.output_status.pack(pady=8)
 
-        # Export Progress Section
         ctk.CTkLabel(right, text="EXPORT PROGRESS", font=ctk.CTkFont(size=15, weight="bold")).pack(anchor="w", padx=24, pady=(24,8))
 
         self.progress_bar = ctk.CTkProgressBar(right, width=320, height=20, mode="determinate",
@@ -218,7 +236,6 @@ class NotYUpscalerZAI(ctk.CTk):
         self.cancel_btn.pack(pady=8, padx=24, fill="x")
         self.cancel_btn.pack_forget()
 
-        # Settings section
         ctk.CTkLabel(right, text="SETTINGS", font=ctk.CTkFont(size=15, weight="bold")).pack(anchor="w", padx=24, pady=(24,8))
 
         ctk.CTkLabel(right, text="Model", font=ctk.CTkFont(size=14)).pack(anchor="w", padx=24, pady=(8,4))
@@ -261,6 +278,23 @@ class NotYUpscalerZAI(ctk.CTk):
         self.model_menu.configure(values=list(self.current_model_dict.keys()))
 
         if self.is_video:
+            cap_temp = cv2.VideoCapture(path)
+            if cap_temp.isOpened():
+                w = int(cap_temp.get(cv2.CAP_PROP_FRAME_WIDTH))
+                h = int(cap_temp.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                cap_temp.release()
+                self.info_label.configure(text=f"Video: {w}×{h}")
+            else:
+                self.info_label.configure(text="Video loaded")
+        else:
+            frame = cv2.imread(path)
+            if frame is not None:
+                h, w = frame.shape[:2]
+                self.info_label.configure(text=f"Image: {w}×{h}")
+            else:
+                self.info_label.configure(text="Image loaded")
+
+        if self.is_video:
             self.load_video()
         else:
             self.load_image()
@@ -273,9 +307,6 @@ class NotYUpscalerZAI(ctk.CTk):
         self.current_frame_bgr = frame
         self.show_frame(frame, self.orig_label)
         self.timeline.configure(from_=0, to=1)
-        h, w = frame.shape[:2]
-        target_w, target_h = self.calculate_size(w, h)
-        self.info_label.configure(text=f"{w}×{h}  →  {target_w}×{target_h}")
         self.live_update()
 
     def load_video(self):
@@ -307,8 +338,15 @@ class NotYUpscalerZAI(ctk.CTk):
         if bgr is None: return
         rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
         pil = Image.fromarray(rgb)
-        pil = pil.resize((680, 460), Image.LANCZOS)
-        cimg = ctk.CTkImage(pil, size=(680, 460))
+
+        orig_w, orig_h = pil.size
+        target_w, target_h = 680, 460
+        ratio = min(target_w / orig_w, target_h / orig_h)
+        new_w = int(orig_w * ratio)
+        new_h = int(orig_h * ratio)
+        pil = pil.resize((new_w, new_h), Image.LANCZOS)
+
+        cimg = ctk.CTkImage(pil, size=(new_w, new_h))
         label.configure(image=cimg, text="")
         if label == self.enh_label:
             self.current_enh_preview = cimg
@@ -331,8 +369,12 @@ class NotYUpscalerZAI(ctk.CTk):
             return
         try:
             sharpen = self.sharpen_s.get()
-            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (int(sharpen*3), int(sharpen*3)))
+            kernel_size = max(3, int(sharpen * 2) + 1)
+            if kernel_size % 2 == 0:
+                kernel_size += 1
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
             enhanced = cv2.filter2D(self.current_frame_bgr.copy(), -1, kernel)
+            # NO GLOW at all in preview to avoid glowing effect
             self.show_frame(enhanced, self.enh_label)
         except Exception as e:
             print("Live preview error:", str(e))
@@ -349,7 +391,7 @@ class NotYUpscalerZAI(ctk.CTk):
 
     def start_export(self):
         if self.export_running:
-            messagebox.showwarning("Already Exporting", "An export process is already running.\nPlease wait or cancel it first.")
+            messagebox.showwarning("Already Exporting", "An export is already running.")
             return
 
         if not self.current_path:
@@ -380,39 +422,36 @@ class NotYUpscalerZAI(ctk.CTk):
                 nw, nh = self.calculate_size(w, h)
                 up = cv2.resize(img, (nw, nh), interpolation=cv2.INTER_LANCZOS4)
                 sharpen = self.sharpen_s.get()
-                kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (int(sharpen*3), int(sharpen*3)))
+                kernel_size = max(3, int(sharpen * 2) + 1)
+                if kernel_size % 2 == 0:
+                    kernel_size += 1
+                kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
                 enhanced = cv2.filter2D(up, -1, kernel)
-                cv2.imwrite(out_path, enhanced)
+                if not cv2.imwrite(out_path, enhanced):
+                    raise RuntimeError("cv2.imwrite failed - check path/permissions")
                 self.after(0, lambda: self._update_progress(100))
             else:
-                video_bitrate = 15000
-                audio_bitrate = 320
-
-                try:
-                    cmd_v = ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=bit_rate", "-of", "default=noprint_wrappers=1:nokey=1", self.current_path]
-                    vbr = subprocess.check_output(cmd_v, stderr=subprocess.STDOUT).decode().strip()
-                    if vbr.isdigit():
-                        video_bitrate = int(vbr) // 1000
-                except:
-                    pass
-
-                try:
-                    cmd_a = ["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=bit_rate", "-of", "default=noprint_wrappers=1:nokey=1", self.current_path]
-                    abr = subprocess.check_output(cmd_a, stderr=subprocess.STDOUT).decode().strip()
-                    if abr.isdigit():
-                        audio_bitrate = int(abr) // 1000
-                except:
-                    pass
-
                 cap = cv2.VideoCapture(self.current_path)
-                total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
                 w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
                 h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
                 cap.release()
 
                 nw, nh = self.calculate_size(w, h)
+
+                target_res = self.target_var.get()
+                if "4K" in target_res:
+                    video_bitrate = 45000
+                    audio_bitrate = 320
+                elif "3K" in target_res:
+                    video_bitrate = 30000
+                    audio_bitrate = 256
+                else:
+                    video_bitrate = 18000
+                    audio_bitrate = 192
+
                 sharpen = self.sharpen_s.get()
-                vf = f"scale={nw}:{nh}:flags=lanczos,unsharp=5:5:{sharpen*1.5}"
+                vf = f"scale={nw}:{nh}:flags=lanczos,unsharp=7:7:{sharpen*1.8}"
 
                 cmd = [
                     "ffmpeg", "-i", self.current_path,
@@ -426,7 +465,6 @@ class NotYUpscalerZAI(ctk.CTk):
                     "-y", out_path
                 ]
 
-                # Run FFmpeg hidden (no console window)
                 startupinfo = subprocess.STARTUPINFO()
                 startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
                 startupinfo.wShowWindow = subprocess.SW_HIDE
@@ -443,7 +481,7 @@ class NotYUpscalerZAI(ctk.CTk):
                                 os.remove(out_path)
                         except:
                             pass
-                        self.after(0, lambda: messagebox.showinfo("Cancelled", "Export cancelled by user."))
+                        self.after(0, lambda: messagebox.showinfo("Cancelled", "Export cancelled."))
                         break
 
                     line = self.export_process.stderr.readline()
@@ -457,7 +495,8 @@ class NotYUpscalerZAI(ctk.CTk):
                     time.sleep(0.2)
 
                 if self.export_process.returncode != 0 and not self.export_cancel_requested:
-                    raise RuntimeError(f"FFmpeg failed (code {self.export_process.returncode})")
+                    err = self.export_process.stderr.read()
+                    raise RuntimeError(f"FFmpeg failed:\n{err[:400]}")
 
                 if not self.export_cancel_requested:
                     self.after(0, lambda: self._update_progress(100))
@@ -512,7 +551,7 @@ class NotYUpscalerZAI(ctk.CTk):
 
     def get_output_path(self, input_path):
         base, ext = os.path.splitext(os.path.basename(input_path))
-        filename = f"{base}_enhanced{ext}"
+        filename = f"{base}_enhanced.mp4"
         if self.output_folder and os.path.isdir(self.output_folder):
             return os.path.join(self.output_folder, filename)
         return os.path.join(os.path.dirname(input_path), filename)
