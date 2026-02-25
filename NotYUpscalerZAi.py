@@ -21,6 +21,26 @@ except ImportError:
     subprocess.check_call([sys.executable, "-m", "pip", "install", "ffmpeg-python"])
     import ffmpeg
 
+# Auto-install google libraries if missing
+try:
+    from googleapiclient.discovery import build
+    from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
+    from google.oauth2.credentials import Credentials
+    from google_auth_oauthlib.flow import InstalledAppFlow
+    from google.auth.transport.requests import Request
+    from google.auth.exceptions import RefreshError
+    from io import BytesIO
+except ImportError:
+    print("Installing Google API libraries...")
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "google-api-python-client", "google-auth-oauthlib", "google-auth-httplib2"])
+    from googleapiclient.discovery import build
+    from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
+    from google.oauth2.credentials import Credentials
+    from google_auth_oauthlib.flow import InstalledAppFlow
+    from google.auth.transport.requests import Request
+    from google.auth.exceptions import RefreshError
+    from io import BytesIO
+
 # Check if real ffmpeg binary exists
 def find_ffmpeg():
     try:
@@ -49,6 +69,8 @@ IMAGE_MODEL = {
 }
 
 CONFIG_FILE = "config.json"
+TOKEN_FILE = "token.json"
+CLIENT_FILE = "client.json"  # User must provide this from Google Cloud Console
 
 class NotYUpscalerZAI(ctk.CTk):
     def __init__(self):
@@ -86,6 +108,11 @@ class NotYUpscalerZAI(ctk.CTk):
         self.export_running = False
         self.export_cancel_requested = False
         self.export_process = None
+
+        self.drive_service = None
+        self.credentials = None
+
+        self.mode = "Local"  # Default mode
 
         self.load_config()
         self.detect_specs()
@@ -129,9 +156,21 @@ class NotYUpscalerZAI(ctk.CTk):
         ctk.CTkLabel(top, text="NotY Upscaler ZAI", font=ctk.CTkFont(size=22, weight="bold"),
                      text_color=self.accent).pack(side="left", padx=24, pady=12)
 
+        self.mode_local = ctk.CTkButton(top, text="Local", fg_color=self.accent, text_color="#000000",
+                                        height=42, width=120, command=lambda: self.set_mode("Local"))
+        self.mode_local.pack(side="left", padx=8)
+
+        self.mode_online = ctk.CTkButton(top, text="Online", fg_color="#21262d", text_color="#8b949e",
+                                         height=42, width=120, command=lambda: self.set_mode("Online"))
+        self.mode_online.pack(side="left", padx=8)
+
+        self.login_btn = ctk.CTkButton(top, text="Login to Google", fg_color="#238636", height=42, width=160,
+                                       command=self.login_google)
+        self.login_btn.pack(side="right", padx=24)
+
         self.specs_label = ctk.CTkLabel(top, text=f"RAM: {self.ram_gb:.1f} GB • Cores: {self.cores} • {'CUDA' if self.has_cuda else 'CPU'}",
                                         font=ctk.CTkFont(size=13), text_color="#8b949e")
-        self.specs_label.pack(side="right", padx=24, pady=12)
+        self.specs_label.pack(side="right", padx=16)
 
         content = ctk.CTkFrame(self, fg_color="#0d1117")
         content.pack(fill="both", expand=True)
@@ -167,17 +206,16 @@ class NotYUpscalerZAI(ctk.CTk):
         ctrl.grid(row=1, column=0, columnspan=2, sticky="ew", pady=12, padx=12)
 
         self.play_btn = ctk.CTkButton(ctrl, text="▶  Play", width=110, height=42,
-                                      font=ctk.CTkFont(size=14), command=lambda: self.toggle_play())
+                                      font=ctk.CTkFont(size=14), command=self.toggle_play)
         self.play_btn.pack(side="left", padx=8)
 
-        self.timeline = ctk.CTkSlider(ctrl, from_=0, to=100,
-                                      command=lambda v: self.on_timeline_change(v),
-                                      height=24, button_length=32, fg_color="#21262d", progress_color=self.accent)
+        self.timeline = ctk.CTkSlider(ctrl, from_=0, to=100, command=self.on_timeline_change,
+                                      height=24, button_length=32, button_hover_color=self.accent)
         self.timeline.pack(side="left", fill="x", expand=True, padx=12)
         self.timeline.set(0)
 
         ctk.CTkButton(ctrl, text="Open in Player", width=140, height=42,
-                      command=lambda: self.open_in_system_player()).pack(side="right", padx=8)
+                      command=self.open_in_system_player).pack(side="right", padx=8)
 
         self.info_label = ctk.CTkLabel(left, text="No file loaded", font=ctk.CTkFont(size=13),
                                        text_color="#8b949e")
@@ -374,7 +412,6 @@ class NotYUpscalerZAI(ctk.CTk):
                 kernel_size += 1
             kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
             enhanced = cv2.filter2D(self.current_frame_bgr.copy(), -1, kernel)
-            # NO GLOW at all in preview to avoid glowing effect
             self.show_frame(enhanced, self.enh_label)
         except Exception as e:
             print("Live preview error:", str(e))
@@ -398,6 +435,9 @@ class NotYUpscalerZAI(ctk.CTk):
             messagebox.showwarning("No file", "Please select a file first")
             return
 
+        # Disable all buttons except cancel
+        self.disable_buttons(True)
+
         self.export_running = True
         self.export_cancel_requested = False
         self.export_btn.configure(state="disabled", text="Exporting...", fg_color="#444c56")
@@ -410,157 +450,264 @@ class NotYUpscalerZAI(ctk.CTk):
 
         threading.Thread(target=self.export_thread, daemon=True).start()
 
+    def disable_buttons(self, disable):
+        state = "disabled" if disable else "normal"
+        self.play_btn.configure(state=state)
+        self.export_btn.configure(state=state)
+        self.preview_toggle_btn.configure(state=state)
+        self.mode_local.configure(state=state)
+        self.mode_online.configure(state=state)
+        self.login_btn.configure(state=state)
+        self.model_menu.configure(state=state)
+        self.target_var.configure(state=state)  # Note: OptionMenu doesn't have state, so hide or ignore
+        # Disable sliders
+        for s in [self.sharpen_s]:
+            s.configure(state=state)
+
     def export_thread(self):
         out_path = self.get_output_path(self.current_path)
 
         try:
-            if not self.is_video:
-                img = cv2.imread(self.current_path)
-                if img is None:
-                    raise ValueError("Cannot read image")
-                h, w = img.shape[:2]
-                nw, nh = self.calculate_size(w, h)
-                up = cv2.resize(img, (nw, nh), interpolation=cv2.INTER_LANCZOS4)
-                sharpen = self.sharpen_s.get()
-                kernel_size = max(3, int(sharpen * 2) + 1)
-                if kernel_size % 2 == 0:
-                    kernel_size += 1
-                kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
-                enhanced = cv2.filter2D(up, -1, kernel)
-                if not cv2.imwrite(out_path, enhanced):
-                    raise RuntimeError("cv2.imwrite failed - check path/permissions")
-                self.after(0, lambda: self._update_progress(100))
+            if self.mode == "Local":
+                self.local_export(out_path)
             else:
-                cap = cv2.VideoCapture(self.current_path)
-                w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-                cap.release()
-
-                nw, nh = self.calculate_size(w, h)
-
-                target_res = self.target_var.get()
-                if "4K" in target_res:
-                    video_bitrate = 45000
-                    audio_bitrate = 320
-                elif "3K" in target_res:
-                    video_bitrate = 30000
-                    audio_bitrate = 256
-                else:
-                    video_bitrate = 18000
-                    audio_bitrate = 192
-
-                sharpen = self.sharpen_s.get()
-                vf = f"scale={nw}:{nh}:flags=lanczos,unsharp=7:7:{sharpen*1.8}"
-
-                cmd = [
-                    "ffmpeg", "-i", self.current_path,
-                    "-vf", vf,
-                    "-c:v", "libx264", "-preset", "medium",
-                    "-b:v", f"{video_bitrate}k",
-                    "-maxrate", f"{int(video_bitrate * 1.5)}k",
-                    "-bufsize", f"{int(video_bitrate * 2)}k",
-                    "-c:a", "aac", "-b:a", f"{audio_bitrate}k",
-                    "-map", "0",
-                    "-y", out_path
-                ]
-
-                startupinfo = subprocess.STARTUPINFO()
-                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                startupinfo.wShowWindow = subprocess.SW_HIDE
-
-                self.export_process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                                       text=True, bufsize=1, startupinfo=startupinfo)
-
-                while self.export_process.poll() is None:
-                    if self.export_cancel_requested:
-                        self.export_process.terminate()
-                        try:
-                            time.sleep(0.5)
-                            if os.path.exists(out_path):
-                                os.remove(out_path)
-                        except:
-                            pass
-                        self.after(0, lambda: messagebox.showinfo("Cancelled", "Export cancelled."))
-                        break
-
-                    line = self.export_process.stderr.readline()
-                    if "frame=" in line:
-                        try:
-                            frame = int(re.search(r'frame=\s*(\d+)', line).group(1))
-                            percent = min(100, int((frame / total_frames) * 100))
-                            self.after(0, lambda p=percent: self._update_progress(p))
-                        except:
-                            pass
-                    time.sleep(0.2)
-
-                if self.export_process.returncode != 0 and not self.export_cancel_requested:
-                    err = self.export_process.stderr.read()
-                    raise RuntimeError(f"FFmpeg failed:\n{err[:400]}")
-
-                if not self.export_cancel_requested:
-                    self.after(0, lambda: self._update_progress(100))
-                    self.after(0, lambda: messagebox.showinfo("Success", f"Exported to:\n{out_path}"))
-
+                self.online_export(out_path)
         except Exception as e:
             self.after(0, lambda msg=str(e): messagebox.showerror("Export Failed", msg))
         finally:
             self.after(0, self._finish_export_ui)
 
-    def _update_progress(self, percent):
-        if hasattr(self, 'progress_bar') and self.progress_bar.winfo_exists():
-            self.progress_bar.set(percent / 100.0)
-            self.progress_label.configure(text=f"{percent}%")
+    def local_export(self, out_path):
+        if not self.is_video:
+            img = cv2.imread(self.current_path)
+            if img is None:
+                raise ValueError("Cannot read image")
+            h, w = img.shape[:2]
+            nw, nh = self.calculate_size(w, h)
+            up = cv2.resize(img, (nw, nh), interpolation=cv2.INTER_LANCZOS4)
+            sharpen = self.sharpen_s.get()
+            kernel_size = max(3, int(sharpen * 2) + 1)
+            if kernel_size % 2 == 0:
+                kernel_size += 1
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
+            enhanced = cv2.filter2D(up, -1, kernel)
+            if not cv2.imwrite(out_path, enhanced):
+                raise RuntimeError("cv2.imwrite failed - check path/permissions")
+            self.after(0, lambda: self._update_progress(100))
+        else:
+            cap = cv2.VideoCapture(self.current_path)
+            w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            cap.release()
 
-    def _finish_export_ui(self):
-        self.export_running = False
-        self.export_cancel_requested = False
-        self.export_process = None
-        self.export_btn.configure(state="normal", text="Export", fg_color="#1f6feb")
-        self.progress_bar.pack_forget()
-        self.progress_label.pack_forget()
-        self.cancel_btn.pack_forget()
-        self.status.configure(text="Export finished")
+            nw, nh = self.calculate_size(w, h)
 
-    def cancel_export(self):
-        if not self.export_running or not self.export_process:
-            return
-        self.export_cancel_requested = True
-        self.status.configure(text="Cancelling export...", text_color=self.danger)
-        self.progress_label.configure(text="Cancelling...")
-
-    def calculate_size(self, w, h):
-        t = self.target_var.get()
-        targets = {"Fit 2K": (2560,1440), "Fit 3K": (2880,1620), "Fit 4K": (3840,2160)}
-        tw, th = targets.get(t, (3840,2160))
-        scale = min(tw / w, th / h)
-        return int(w * scale // 2 * 2), int(h * scale // 2 * 2)
-
-    def open_in_system_player(self):
-        if self.current_path and os.path.exists(self.current_path):
-            if os.name == 'nt':
-                os.startfile(self.current_path)
+            target_res = self.target_var.get()
+            if "4K" in target_res:
+                video_bitrate = 45000
+                audio_bitrate = 320
+            elif "3K" in target_res:
+                video_bitrate = 30000
+                audio_bitrate = 256
             else:
-                subprocess.call(['xdg-open' if os.name == 'posix' else 'open', self.current_path])
+                video_bitrate = 18000
+                audio_bitrate = 192
 
-    def choose_output_folder(self):
-        folder = filedialog.askdirectory(title="Select Output Folder")
-        if folder:
-            self.output_folder = folder
-            self.output_status.configure(text=f"Output: {os.path.basename(folder)}", text_color=self.accent)
+            sharpen = self.sharpen_s.get()
+            vf = f"scale={nw}:{nh}:flags=lanczos,unsharp=7:7:{sharpen*1.8}"
 
-    def get_output_path(self, input_path):
-        base, ext = os.path.splitext(os.path.basename(input_path))
-        filename = f"{base}_enhanced.mp4"
-        if self.output_folder and os.path.isdir(self.output_folder):
-            return os.path.join(self.output_folder, filename)
-        return os.path.join(os.path.dirname(input_path), filename)
+            cmd = [
+                "ffmpeg", "-i", self.current_path,
+                "-vf", vf,
+                "-c:v", "libx264", "-preset", "medium",
+                "-b:v", f"{video_bitrate}k",
+                "-maxrate", f"{int(video_bitrate * 1.5)}k",
+                "-bufsize", f"{int(video_bitrate * 2)}k",
+                "-c:a", "aac", "-b:a", f"{audio_bitrate}k",
+                "-map", "0",
+                "-y", out_path
+            ]
 
-    def read_specs(self):
-        txt = f"RAM {self.ram_gb:.1f} GB • {self.cores} cores • {'CUDA' if self.has_cuda else 'CPU'}"
-        self.status.configure(text=txt)
-        self.config["specs_read"] = True
-        self.save_config()
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = subprocess.SW_HIDE
+
+            self.export_process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                                   text=True, bufsize=1, startupinfo=startupinfo)
+
+            while self.export_process.poll() is None:
+                if self.export_cancel_requested:
+                    self.export_process.terminate()
+                    try:
+                        time.sleep(0.5)
+                        if os.path.exists(out_path):
+                            os.remove(out_path)
+                    except:
+                        pass
+                    self.after(0, lambda: messagebox.showinfo("Cancelled", "Export cancelled."))
+                    break
+
+                line = self.export_process.stderr.readline()
+                if "frame=" in line:
+                    try:
+                        frame = int(re.search(r'frame=\s*(\d+)', line).group(1))
+                        percent = min(100, int((frame / total_frames) * 100))
+                        self.after(0, lambda p=percent: self._update_progress(p))
+                    except:
+                        pass
+                time.sleep(0.2)
+
+                if self.export_process.returncode != 0 and not self.export_cancel_requested:
+                    err = self.export_process.stderr.read()
+                    raise RuntimeError(f"FFmpeg failed:\n{err[:400]}")
+
+            if not self.export_cancel_requested:
+                self.after(0, lambda: self._update_progress(100))
+                self.after(0, lambda: messagebox.showinfo("Success", f"Exported to:\n{out_path}"))
+
+    def online_export(self, out_path):
+        if not self.drive_service:
+            raise RuntimeError("Not logged in to Google")
+
+        file_size = os.path.getsize(self.current_path) / (1024*1024)
+        if file_size > 500:
+            raise ValueError("Video file exceeds 500MB limit for Online mode")
+
+        self.status.configure(text="Uploading video to Drive...")
+        video_id = self.upload_to_drive(self.current_path, "video")
+
+        self.status.configure(text="Generating Colab notebook...")
+        notebook_code = self.generate_colab_notebook(video_id)
+        notebook_path = "temp_notebook.ipynb"
+        with open(notebook_path, "w") as f:
+            f.write(notebook_code)
+        notebook_id = self.upload_to_drive(notebook_path, "notebook")
+        os.remove(notebook_path)
+
+        colab_link = f"https://colab.research.google.com/drive/{notebook_id}"
+        self.status.configure(text="Open Colab and run all cells...")
+        messagebox.showinfo("Open Colab", f"Open this link in browser:\n{colab_link}\nRun all cells, then click 'Check for Output' in app.")
+
+        self.export_btn.configure(text="Check for Output", state="normal", fg_color=self.accent, command=self.check_online_output)
+
+    def upload_to_drive(self, path, file_type):
+        metadata = {
+            'name': os.path.basename(path),
+            'mimeType': 'application/octet-stream' if file_type == "video" else 'application/vnd.google-apps.script+json'
+        }
+        media = MediaFileUpload(path, resumable=True)
+        file = self.drive_service.files().create(body=metadata, media_body=media, fields='id').execute()
+        return file.get('id')
+
+    def generate_colab_notebook(self, video_id):
+        sharpen = self.sharpen_s.get()
+        kernel_size = max(3, int(sharpen * 2) + 1)
+        if kernel_size % 2 == 0:
+            kernel_size += 1
+
+        code = f"""
+from google.colab import drive
+drive.mount('/content/drive')
+
+import cv2
+import numpy as np
+import os
+import subprocess
+
+video_path = '/content/drive/MyDrive/{os.path.basename(self.current_path)}'
+out_path = '/content/drive/MyDrive/{os.path.basename(self.get_output_path(self.current_path))}'
+
+cap = cv2.VideoCapture(video_path)
+w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+cap.release()
+
+nw = int(w * 2)  # Example upscale, adjust as needed
+nh = int(h * 2)
+
+vf = f"scale={nw}:{nh}:flags=lanczos,unsharp=7:7:{sharpen*1.8}"
+
+cmd = [
+    "ffmpeg", "-i", video_path,
+    "-vf", vf,
+    "-c:v", "libx264", "-preset", "medium", "-crf", "17",
+    "-c:a", "aac", "-b:a", "192k",
+    "-y", out_path
+]
+
+subprocess.run(cmd)
+
+# Delete temp video
+os.remove(video_path)
+"""
+        notebook_json = {
+            "cells": [
+                {
+                    "cell_type": "code",
+                    "execution_count": None,
+                    "metadata": {},
+                    "outputs": [],
+                    "source": code
+                }
+            ],
+            "metadata": {},
+            "nbformat": 4,
+            "nbformat_minor": 4
+        }
+        return json.dumps(notebook_json)
+
+    def check_online_output(self):
+        out_path = self.get_output_path(self.current_path)
+        base = os.path.basename(out_path)
+        files = self.drive_service.files().list(q=f"name='{base}'", fields="files(id, name)").execute()
+        if files.get('files'):
+            self.download_from_drive(files['files'][0]['id'], out_path)
+            self.drive_service.files().delete(fileId=files['files'][0]['id']).execute()
+            messagebox.showinfo("Success", f"Downloaded to:\n{out_path}")
+            self._finish_export_ui()
+        else:
+            messagebox.showinfo("No Output", "No output file found in Drive. Run Colab again.")
+
+    def download_from_drive(self, file_id, out_path):
+        request = self.drive_service.files().get_media(fileId=file_id)
+        fh = BytesIO()
+        downloader = MediaIoBaseDownload(fh, request)
+        done = False
+        while done is False:
+            status, done = downloader.next_chunk()
+        with open(out_path, 'wb') as f:
+            f.write(fh.getvalue())
+
+    def set_mode(self, mode):
+        self.mode = mode
+        if mode == "Local":
+            self.mode_local.configure(fg_color=self.accent, text_color="#000000")
+            self.mode_online.configure(fg_color="#21262d", text_color="#8b949e")
+        else:
+            self.mode_local.configure(fg_color="#21262d", text_color="#8b949e")
+            self.mode_online.configure(fg_color=self.accent, text_color="#000000")
+            if not self.drive_service:
+                self.login_google()
+
+    def login_google(self):
+        if os.path.exists(CLIENT_FILE):
+            scopes = ['https://www.googleapis.com/auth/drive']
+            if os.path.exists(TOKEN_FILE):
+                self.credentials = Credentials.from_authorized_user_file(TOKEN_FILE, scopes)
+            if not self.credentials or not self.credentials.valid:
+                if self.credentials and self.credentials.expired and self.credentials.refresh_token:
+                    self.credentials.refresh(Request())
+                else:
+                    flow = InstalledAppFlow.from_client_secrets_file(CLIENT_FILE, scopes)
+                    self.credentials = flow.run_local_server(port=0)
+                with open(TOKEN_FILE, 'w') as token:
+                    token.write(self.credentials.to_json())
+            self.drive_service = build('drive', 'v3', credentials=self.credentials)
+            self.login_btn.configure(text="Logged In", fg_color=self.success)
+            messagebox.showinfo("Success", "Logged in to Google Drive")
+        else:
+            messagebox.showerror("Error", "client.json not found. Create one from Google Cloud Console.")
 
 if __name__ == "__main__":
     app = NotYUpscalerZAI()
