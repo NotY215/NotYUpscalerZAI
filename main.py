@@ -35,11 +35,30 @@ class NotYUpscalerZAI(ctk.CTk):
 
         self.configure(fg_color="#0d1117")
 
-        if os.path.exists("logo.ico"):
+# ─── Window + Taskbar icon ───────────────────────────────────────
+        import sys
+        import os
+
+        def resource_path(relative_path):
+            """ Get absolute path to resource, works for dev and for PyInstaller """
             try:
+                # PyInstaller creates a temp folder and stores path in _MEIPASS
+                base_path = sys._MEIPASS
+            except Exception:
+                base_path = os.path.abspath(".")
+
+            return os.path.join(base_path, relative_path)
+
+        # Try to set icon
+        try:
+            ico_path = resource_path("logo.ico")
+            if os.path.exists(ico_path):
+                self.iconbitmap(ico_path)
+            else:
+                # fallback — try relative to script
                 self.iconbitmap("logo.ico")
-            except:
-                pass
+        except Exception as e:
+            print("Could not set window icon:", e)
 
         self.accent = "#00d4ff"
         self.success = "#00ff9d"
