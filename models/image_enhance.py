@@ -3,6 +3,9 @@ import numpy as np
 from .base_enhancer import BaseEnhancer
 
 class ImageEnhanceModel(BaseEnhancer):
+    def __init__(self, sharpen=1.8, **kwargs):
+        super().__init__(sharpen=sharpen, **kwargs)
+
     def enhance_frame(self, frame):
         if frame is None or frame.size == 0:
             return frame

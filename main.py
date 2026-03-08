@@ -26,6 +26,16 @@ IMAGE_MODEL = {
 
 CONFIG_FILE = "config.json"
 
+# Format codecs for FFmpeg compatibility (optimized for AE import)
+FORMAT_CODECS = {
+    "mp4": {"c_v": "libx264", "c_a": "aac", "f": None, "movflags": "+faststart", "audio_b": "192k"},
+    "mov": {"c_v": "libx264", "c_a": "aac", "f": "mov", "movflags": None, "audio_b": "192k"},
+    "m4v": {"c_v": "libx264", "c_a": "aac", "f": "ipod", "movflags": "+faststart", "audio_b": "192k"},
+    "avi": {"c_v": "mpeg4", "c_a": "mp2", "f": "avi", "movflags": None, "audio_b": "192k"},
+    "mxf": {"c_v": "mpeg2video", "c_a": "pcm_s16le", "f": "mxf", "movflags": None, "audio_b": None},
+    "3gp": {"c_v": "mpeg4", "c_a": "aac", "f": "3gp", "movflags": None, "audio_b": "128k"}
+}
+
 class NotYUpscalerZAI(ctk.CTk):
     def __init__(self):
         super().__init__()
@@ -35,30 +45,11 @@ class NotYUpscalerZAI(ctk.CTk):
 
         self.configure(fg_color="#0d1117")
 
-# ─── Window + Taskbar icon ───────────────────────────────────────
-        import sys
-        import os
-
-        def resource_path(relative_path):
-            """ Get absolute path to resource, works for dev and for PyInstaller """
+        if os.path.exists("logo.ico"):
             try:
-                # PyInstaller creates a temp folder and stores path in _MEIPASS
-                base_path = sys._MEIPASS
-            except Exception:
-                base_path = os.path.abspath(".")
-
-            return os.path.join(base_path, relative_path)
-
-        # Try to set icon
-        try:
-            ico_path = resource_path("logo.ico")
-            if os.path.exists(ico_path):
-                self.iconbitmap(ico_path)
-            else:
-                # fallback — try relative to script
                 self.iconbitmap("logo.ico")
-        except Exception as e:
-            print("Could not set window icon:", e)
+            except:
+                pass
 
         self.accent = "#00d4ff"
         self.success = "#00ff9d"
@@ -77,6 +68,7 @@ class NotYUpscalerZAI(ctk.CTk):
         self.current_enh_preview  = None
 
         self.current_model_dict = VIDEO_MODELS
+        self.current_model = None
 
         self.export_running = False
         self.export_cancel_requested = False
@@ -243,7 +235,7 @@ class NotYUpscalerZAI(ctk.CTk):
         ctk.CTkLabel(right, text="Model", font=ctk.CTkFont(size=14)).pack(anchor="w", padx=24, pady=(8,4))
         self.model_var = ctk.StringVar(value="Ultra Native")
         self.model_menu = ctk.CTkOptionMenu(right, values=list(self.current_model_dict.keys()),
-                                            variable=self.model_var, command=lambda v: self.live_update(),
+                                            variable=self.model_var, command=self.on_model_change,
                                             fg_color="#21262d", button_color="#30363d")
         self.model_menu.pack(padx=24, pady=6, fill="x")
 
@@ -252,15 +244,64 @@ class NotYUpscalerZAI(ctk.CTk):
         ctk.CTkOptionMenu(right, values=["Fit 2K","Fit 3K","Fit 4K"],
                           variable=self.target_var, fg_color="#21262d", button_color="#30363d").pack(padx=24, pady=6, fill="x")
 
+        # Video-specific: Bitrate slider frame
+        self.bitrate_frame = ctk.CTkFrame(right, fg_color="transparent")
+        ctk.CTkLabel(self.bitrate_frame, text="Video Bitrate (Mbps)", font=ctk.CTkFont(size=14)).pack(anchor="w", padx=24, pady=(16,4))
+        self.bitrate_s = ctk.CTkSlider(self.bitrate_frame, from_=15, to=45, height=20,
+                                       command=lambda v: self.update_model_params())
+        self.bitrate_s.set(25)
+        self.bitrate_s.pack(padx=24, pady=6, fill="x")
+        # Initially hidden
+
+        # Video-specific: Output format frame
+        self.format_frame = ctk.CTkFrame(right, fg_color="transparent")
+        ctk.CTkLabel(self.format_frame, text="Output Format", font=ctk.CTkFont(size=14)).pack(anchor="w", padx=24, pady=(16,4))
+        self.format_var = ctk.StringVar(value="mp4")
+        self.format_menu = ctk.CTkOptionMenu(self.format_frame, values=list(FORMAT_CODECS.keys()),
+                                             variable=self.format_var, fg_color="#21262d", button_color="#30363d")
+        self.format_menu.pack(padx=24, pady=6, fill="x")
+        # Initially hidden
+
         adj = ctk.CTkFrame(right, fg_color="#0d1117", corner_radius=8)
         adj.pack(pady=20, padx=24, fill="x")
         ctk.CTkLabel(adj, text="Sharpen Strength", font=ctk.CTkFont(size=14, weight="bold")).pack(pady=12)
-        self.sharpen_s = ctk.CTkSlider(adj, from_=0.5, to=4.0, command=lambda v: self.live_update())
+        self.sharpen_s = ctk.CTkSlider(adj, from_=0.5, to=4.0, command=lambda v: (self.update_model_params(), self.live_update()))
         self.sharpen_s.set(2.2)
         self.sharpen_s.pack(padx=20, pady=(0,16), fill="x")
 
         self.status = ctk.CTkLabel(right, text="", text_color=self.accent, font=ctk.CTkFont(size=13))
         self.status.pack(pady=16)
+
+    def on_model_change(self, selected):
+        self.model_var.set(selected)
+        self.update_model()
+        if self.live_enabled:
+            self.live_update()
+
+    def update_model(self):
+        model_name = self.model_var.get()
+        sharpen = self.sharpen_s.get()
+        try:
+            if self.is_video:
+                if model_name == "Lite Restore":
+                    from models.lite_restore import LiteRestoreEnhancer
+                    self.current_model = LiteRestoreEnhancer(sharpen=sharpen)
+                elif model_name == "Pro Detail":
+                    from models.pro_detail import ProDetailEnhancer
+                    self.current_model = ProDetailEnhancer(sharpen=sharpen)
+                else:  # Ultra Native
+                    from models.ultra_native import UltraNativeEnhancer
+                    self.current_model = UltraNativeEnhancer(sharpen=sharpen)
+            else:
+                from models.image_enhance import ImageEnhanceModel
+                self.current_model = ImageEnhanceModel(sharpen=sharpen)
+        except ImportError:
+            messagebox.showerror("Error", "Model file not found. Ensure models/ folder is present.")
+            self.current_model = None
+
+    def update_model_params(self):
+        if self.current_model:
+            self.current_model.sharpen = self.sharpen_s.get()
 
     def select_file(self):
         path = filedialog.askopenfilename(filetypes=[("Media","*.jpg *.jpeg *.png *.webp *.mp4 *.mkv *.avi *.mov")])
@@ -268,6 +309,14 @@ class NotYUpscalerZAI(ctk.CTk):
         self.current_path = path
         self.is_video = path.lower().endswith(('.mp4','.mkv','.avi','.mov'))
         self.file_name.configure(text=os.path.basename(path)[:38])
+
+        # Show/hide video-specific frames
+        if self.is_video:
+            self.bitrate_frame.pack(fill="x", pady=(0,10))
+            self.format_frame.pack(fill="x", pady=(0,20))
+        else:
+            self.bitrate_frame.pack_forget()
+            self.format_frame.pack_forget()
 
         if self.is_video:
             self.current_model_dict = VIDEO_MODELS
@@ -278,6 +327,7 @@ class NotYUpscalerZAI(ctk.CTk):
 
         self.model_var.set(default)
         self.model_menu.configure(values=list(self.current_model_dict.keys()))
+        self.update_model()
 
         if self.is_video:
             self.load_video()
@@ -295,7 +345,8 @@ class NotYUpscalerZAI(ctk.CTk):
         h, w = frame.shape[:2]
         target_w, target_h = self.calculate_size(w, h)
         self.info_label.configure(text=f"{w}×{h}  →  {target_w}×{target_h}")
-        self.live_update()
+        if self.live_enabled:
+            self.live_update()
 
     def load_video(self):
         if self.cap: self.cap.release()
@@ -346,12 +397,10 @@ class NotYUpscalerZAI(ctk.CTk):
             self.update_video_frame()
 
     def live_update(self, val=None):
-        if not self.live_enabled or self.current_frame_bgr is None:
+        if not self.live_enabled or self.current_frame_bgr is None or self.current_model is None:
             return
         try:
-            sharpen = self.sharpen_s.get()
-            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (int(sharpen*3), int(sharpen*3)))
-            enhanced = cv2.filter2D(self.current_frame_bgr.copy(), -1, kernel)
+            enhanced = self.current_model.enhance_frame(self.current_frame_bgr.copy())
             self.show_frame(enhanced, self.enh_label)
         except Exception as e:
             print("Live preview error:", str(e))
@@ -373,6 +422,10 @@ class NotYUpscalerZAI(ctk.CTk):
 
         if not self.current_path:
             messagebox.showwarning("No file", "Please select a file first")
+            return
+
+        if self.current_model is None:
+            messagebox.showwarning("No Model", "Please select a model first")
             return
 
         self.export_running = True
@@ -398,28 +451,17 @@ class NotYUpscalerZAI(ctk.CTk):
                 h, w = img.shape[:2]
                 nw, nh = self.calculate_size(w, h)
                 up = cv2.resize(img, (nw, nh), interpolation=cv2.INTER_LANCZOS4)
-                sharpen = self.sharpen_s.get()
-                kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (int(sharpen*3), int(sharpen*3)))
-                enhanced = cv2.filter2D(up, -1, kernel)
-                cv2.imwrite(out_path, enhanced)
+                enhanced = self.current_model.enhance_frame(up)
+                cv2.imwrite(out_path, enhanced, [cv2.IMWRITE_JPEG_QUALITY, 95])
                 self.after(0, lambda: self._update_progress(100))
             else:
-                video_bitrate = 15000
-                audio_bitrate = 320
-
-                try:
-                    cmd_v = ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=bit_rate", "-of", "default=noprint_wrappers=1:nokey=1", self.current_path]
-                    vbr = subprocess.check_output(cmd_v, stderr=subprocess.STDOUT).decode().strip()
-                    if vbr.isdigit():
-                        video_bitrate = int(vbr) // 1000
-                except:
-                    pass
-
+                # Detect audio bitrate as fallback
+                audio_bitrate = "192k"
                 try:
                     cmd_a = ["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=bit_rate", "-of", "default=noprint_wrappers=1:nokey=1", self.current_path]
                     abr = subprocess.check_output(cmd_a, stderr=subprocess.STDOUT).decode().strip()
                     if abr.isdigit():
-                        audio_bitrate = int(abr) // 1000
+                        audio_bitrate = f"{int(abr) // 1000}k"
                 except:
                     pass
 
@@ -430,20 +472,36 @@ class NotYUpscalerZAI(ctk.CTk):
                 cap.release()
 
                 nw, nh = self.calculate_size(w, h)
-                sharpen = self.sharpen_s.get()
-                vf = f"scale={nw}:{nh}:flags=lanczos,unsharp=5:5:{sharpen*1.5}"
+                vf = self.current_model.get_ffmpeg_vf(nw, nh)
+
+                video_bitrate = f"{int(self.bitrate_s.get() * 1000)}k"
+                maxrate = f"{int(self.bitrate_s.get() * 1.5 * 1000)}k"
+                bufsize = f"{int(self.bitrate_s.get() * 2 * 1000)}k"
+
+                fmt = self.format_var.get()
+                fc = FORMAT_CODECS.get(fmt, FORMAT_CODECS["mp4"])
+                audio_b = fc.get("audio_b", audio_bitrate)
 
                 cmd = [
                     "ffmpeg", "-i", self.current_path,
                     "-vf", vf,
-                    "-c:v", "libx264", "-preset", "medium",
-                    "-b:v", f"{video_bitrate}k",
-                    "-maxrate", f"{int(video_bitrate * 1.5)}k",
-                    "-bufsize", f"{int(video_bitrate * 2)}k",
-                    "-c:a", "aac", "-b:a", f"{audio_bitrate}k",
+                    "-c:v", fc["c_v"],
+                    "-preset", "medium",
+                    "-b:v", video_bitrate,
+                    "-maxrate", maxrate,
+                    "-bufsize", bufsize,
+                    "-c:a", fc["c_a"],
+                    "-b:a", audio_b,
+                    "-pix_fmt", "yuv420p",
                     "-map", "0",
-                    "-y", out_path
                 ]
+
+                if fc.get("f"):
+                    cmd += ["-f", fc["f"]]
+                if fc.get("movflags"):
+                    cmd += ["-movflags", fc["movflags"]]
+
+                cmd += ["-y", out_path]
 
                 # Run FFmpeg hidden (no console window)
                 startupinfo = subprocess.STARTUPINFO()
@@ -530,7 +588,12 @@ class NotYUpscalerZAI(ctk.CTk):
             self.output_status.configure(text=f"Output: {os.path.basename(folder)}", text_color=self.accent)
 
     def get_output_path(self, input_path):
-        base, ext = os.path.splitext(os.path.basename(input_path))
+        base = os.path.splitext(os.path.basename(input_path))[0]
+        if self.is_video:
+            fmt = self.format_var.get()
+            ext = f".{fmt}"
+        else:
+            ext = os.path.splitext(input_path)[1]
         filename = f"{base}_enhanced{ext}"
         if self.output_folder and os.path.isdir(self.output_folder):
             return os.path.join(self.output_folder, filename)
