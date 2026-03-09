@@ -30,10 +30,10 @@ ensure_venv()
 # ─────────────────────────────────────────────────────────────
 # CONFIG
 # ─────────────────────────────────────────────────────────────
-SCRIPT      = "main.py"               # ← your actual app script
+SCRIPT      = "main.py"               
 ICON_FILE   = "logo.ico"
 MODELS_DIR  = "models"
-FFMPEG_DIR  = "ffmpeg"                # new!
+FFMPEG_DIR  = "ffmpeg"
 DIST        = r"F:\Own Apps\Installer"
 
 os.makedirs(DIST, exist_ok=True)
@@ -62,18 +62,18 @@ if os.path.exists(MODELS_DIR):
 else:
     print("⚠ Warning: models folder not found")
 
-# 2. Bundled ffmpeg files (important!)
+# 2. Bundled ffmpeg files
 if os.path.exists(FFMPEG_DIR):
     for file in ["ffmpeg.exe", "ffprobe.exe"]:
         src = os.path.join(FFMPEG_DIR, file)
         if os.path.exists(src):
-            add_data_args.append(f'--add-data="{src};."')   # put in root of extraction
+            add_data_args.append(f'--add-data="{src};."')
         else:
             print(f"⚠ Warning: {file} not found in ffmpeg folder")
 else:
     print("⚠ Warning: ffmpeg folder not found — building without bundled FFmpeg!")
 
-# 3. Icon file (for possible runtime use)
+# 3. Icon file (optional runtime access)
 add_data_args.append(f'--add-data="{ICON_FILE};."')
 
 # ─────────────────────────────────────────────────────────────
@@ -83,22 +83,13 @@ args = [
     SCRIPT,
     "--onefile",
     "--windowed",
-
-    # Proper EXE icon (window + taskbar)
-    f"--icon={ICON_FILE}",
-
-    # Collect required packages fully
+    f"--icon={ICON_FILE}",                # Main EXE icon
     "--collect-all=cv2",
     "--collect-all=psutil",
     "--collect-all=customtkinter",
     "--collect-all=PIL",
-
-    # Safety for OpenCV
     "--hidden-import=cv2",
-
-    # All collected data
     *add_data_args,
-
     f"--distpath={DIST}",
     "--noconfirm",
     "--clean",
@@ -146,11 +137,11 @@ print("\n" + "=" * 70)
 if os.path.exists(exe):
     print("🎉 BUILD SUCCESSFUL!")
     print(f"EXE location: {exe}")
-    print(f"Size will be larger now (~+50–70 MB due to ffmpeg)")
-    print("\nIf icon appears incorrect:")
-    print("1. Delete old .exe")
-    print("2. Restart Windows Explorer or restart PC")
-    print("3. Rebuild again")
+    print("Size increased by ~50–70 MB (bundled FFmpeg)")
+    print("\nIf icon doesn't show correctly:")
+    print("  1. Delete the old .exe")
+    print("  2. Restart Windows Explorer (or PC)")
+    print("  3. Rebuild if needed")
 else:
     print("❌ BUILD FAILED — check output above")
 print("=" * 70)

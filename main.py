@@ -17,9 +17,7 @@ import numpy as np
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
 
-# ─────────────────────────────────────────────────────────────
 # FFmpeg helpers
-# ─────────────────────────────────────────────────────────────
 def get_ffmpeg_path():
     try:
         subprocess.run(["ffmpeg", "-version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
@@ -69,8 +67,6 @@ FORMAT_CODECS = {
     "3gp":  {"c_v": "mpeg4",   "c_a": "aac",  "f": "3gp",    "movflags": None,         "audio_b": "128k"}
 }
 
-FFMPEG_PRESETS = ["ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow", "slower", "veryslow"]
-
 class NotYUpscalerZAI(ctk.CTk):
     def __init__(self):
         super().__init__()
@@ -102,7 +98,7 @@ class NotYUpscalerZAI(ctk.CTk):
 
         self.current_orig_preview = None
         self.current_enh_preview  = None
-        self.current_enh_image    = None   # strong reference to CTkImage
+        self.current_enh_image    = None
 
         self.current_model_dict = VIDEO_MODELS
         self.current_model = None
@@ -116,7 +112,7 @@ class NotYUpscalerZAI(ctk.CTk):
 
         self.create_ui()
 
-        self.last_preview_time = 0  # throttle live updates
+        self.last_preview_time = 0
 
     def load_config(self):
         if os.path.exists(CONFIG_FILE):
@@ -169,13 +165,13 @@ class NotYUpscalerZAI(ctk.CTk):
         orig_panel = ctk.CTkFrame(left, fg_color="transparent")
         orig_panel.grid(row=0, column=0, sticky="nsew", padx=(8,4), pady=8)
         ctk.CTkLabel(orig_panel, text="ORIGINAL", font=ctk.CTkFont(size=15, weight="bold"), text_color="gray").pack(pady=(8,4))
-        self.orig_label = ctk.CTkLabel(orig_panel, text="Select media", width=680, height=460, fg_color="#11151c", corner_radius=8)
+        self.orig_label = ctk.CTkLabel(orig_panel, text="Select media", width=680, height=460, fg_color="#11151c", corner_radius=0)
         self.orig_label.pack(expand=True, fill="both")
 
         enh_panel = ctk.CTkFrame(left, fg_color="transparent")
         enh_panel.grid(row=0, column=1, sticky="nsew", padx=(4,8), pady=8)
         ctk.CTkLabel(enh_panel, text="ENHANCED", font=ctk.CTkFont(size=15, weight="bold"), text_color=self.accent).pack(pady=(8,4))
-        self.enh_label = ctk.CTkLabel(enh_panel, text="Live preview disabled", width=680, height=460, fg_color="#11151c", corner_radius=8)
+        self.enh_label = ctk.CTkLabel(enh_panel, text="Live preview disabled", width=680, height=460, fg_color="#11151c", corner_radius=0)
         self.enh_label.pack(expand=True, fill="both")
 
         ctrl = ctk.CTkFrame(left, fg_color="#161b22")
@@ -247,23 +243,21 @@ class NotYUpscalerZAI(ctk.CTk):
         self.model_var = ctk.StringVar(value="Ultra Native")
         self.model_menu = ctk.CTkOptionMenu(right, values=list(self.current_model_dict.keys()),
                                             variable=self.model_var,
-                                            command=self.on_model_change,  # ← fixed: pass function reference
+                                            command=self.on_model_change,
                                             fg_color="#2a2f38", button_color="#3a3f48")
         self.model_menu.pack(padx=24, pady=4, fill="x")
 
         ctk.CTkLabel(right, text="Target Resolution", font=ctk.CTkFont(size=14)).pack(anchor="w", padx=24, pady=(12,2))
         self.target_var = ctk.StringVar(value="Fit 4K")
         self.target_menu = ctk.CTkOptionMenu(right, values=["Fit 2K","Fit 3K","Fit 4K"],
-                                             variable=self.target_var, fg_color="#2a2f38", button_color="#3a3f48",
-                                             command=self.update_size_estimate)
+                                             variable=self.target_var, fg_color="#2a2f38", button_color="#3a3f48")
         self.target_menu.pack(padx=24, pady=4, fill="x")
 
         self.format_frame = ctk.CTkFrame(right, fg_color="transparent")
         ctk.CTkLabel(self.format_frame, text="Output Format", font=ctk.CTkFont(size=14)).pack(anchor="w", padx=24, pady=(12,2))
         self.format_var = ctk.StringVar(value="mp4")
         self.format_menu = ctk.CTkOptionMenu(self.format_frame, values=list(FORMAT_CODECS.keys()),
-                                             variable=self.format_var, fg_color="#2a2f38", button_color="#3a3f48",
-                                             command=self.update_size_estimate)
+                                             variable=self.format_var, fg_color="#2a2f38", button_color="#3a3f48")
         self.format_menu.pack(padx=24, pady=4, fill="x")
 
         adj = ctk.CTkFrame(right, fg_color="#1e1e2e", corner_radius=8)
@@ -279,23 +273,13 @@ class NotYUpscalerZAI(ctk.CTk):
         bitrate_frame.pack(fill="x", pady=8)
 
         ctk.CTkLabel(bitrate_frame, text="Bitrate (Mbps)", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=4)
-        self.bitrate_s = ctk.CTkSlider(bitrate_frame, from_=4, to=35, number_of_steps=31, command=self.on_bitrate_change,
+        self.bitrate_s = ctk.CTkSlider(bitrate_frame, from_=4, to=60, number_of_steps=56, command=self.on_bitrate_change,
                                        fg_color="#2a2f38", progress_color=self.success)
         self.bitrate_s.set(12)
         self.bitrate_s.pack(padx=4, pady=(4,0), fill="x")
 
         self.bitrate_label = ctk.CTkLabel(bitrate_frame, text="12 Mbps", font=ctk.CTkFont(size=13))
         self.bitrate_label.pack(anchor="w", padx=4, pady=2)
-
-        preset_frame = ctk.CTkFrame(adj, fg_color="transparent")
-        preset_frame.pack(fill="x", pady=8)
-
-        ctk.CTkLabel(preset_frame, text="Encoding Speed", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=4)
-        self.preset_var = ctk.StringVar(value="medium")
-        self.preset_menu = ctk.CTkOptionMenu(preset_frame, values=FFMPEG_PRESETS,
-                                             variable=self.preset_var, fg_color="#2a2f38", button_color="#3a3f48",
-                                             command=self.update_size_estimate)
-        self.preset_menu.pack(padx=4, pady=4, fill="x")
 
         self.size_estimate_label = ctk.CTkLabel(adj, text="Estimated size: —", font=ctk.CTkFont(size=13), text_color="#a0a0ff")
         self.size_estimate_label.pack(pady=12, anchor="w", padx=20)
@@ -305,29 +289,25 @@ class NotYUpscalerZAI(ctk.CTk):
 
         self.format_frame.pack_forget()
 
-    def update_size_estimate(self, *args):
+    def on_bitrate_change(self, value):
+        self.bitrate_label.configure(text=f"{int(value)} Mbps")
+        self.update_size_estimate()
+
+    def update_size_estimate(self):
         if not self.is_video or not self.video_duration_sec:
             self.size_estimate_label.configure(text="Estimated size: —")
             return
 
         bitrate_mbps = self.bitrate_s.get()
-        preset_factor = {
-            "ultrafast": 0.6, "superfast": 0.7, "veryfast": 0.8, "faster": 0.9,
-            "fast": 1.0, "medium": 1.1, "slow": 1.3, "slower": 1.5, "veryslow": 1.8
-        }.get(self.preset_var.get(), 1.1)
-
-        size_mb = (bitrate_mbps * self.video_duration_sec * 1.15 * preset_factor) / 8
+        size_mb = (bitrate_mbps * self.video_duration_sec * 1.15) / 8
         if size_mb > 1024:
-            text = f"Estimated size: ~{size_mb/1024:.1f} GB"
+            text = f"~{size_mb/1024:.1f} GB"
+            color = "#ff9800" if size_mb > 5000 else "#a0a0ff"
         else:
-            text = f"Estimated size: ~{size_mb:.1f} MB"
+            text = f"~{size_mb:.1f} MB"
+            color = "#a0a0ff"
 
-        color = "#ff9800" if size_mb > 1500 else "#a0a0ff"
-        self.size_estimate_label.configure(text=text, text_color=color)
-
-    def on_bitrate_change(self, value):
-        self.bitrate_label.configure(text=f"{int(value)} Mbps")
-        self.update_size_estimate()
+        self.size_estimate_label.configure(text=f"Estimated size: {text}", text_color=color)
 
     def on_sharpen_change(self, value):
         if self.current_model:
@@ -458,7 +438,7 @@ class NotYUpscalerZAI(ctk.CTk):
             cimg = ctk.CTkImage(bg, size=(680, 460))
 
             if label == self.enh_label:
-                self.current_enh_image = cimg   # keep strong ref
+                self.current_enh_image = cimg
                 self.current_enh_preview = cimg
             else:
                 self.current_orig_preview = cimg
@@ -484,7 +464,7 @@ class NotYUpscalerZAI(ctk.CTk):
             return
 
         current_time = time.time()
-        if current_time - self.last_preview_time < 0.15:  # ~6 fps max
+        if current_time - self.last_preview_time < 0.15:
             return
         self.last_preview_time = current_time
 
@@ -509,7 +489,7 @@ class NotYUpscalerZAI(ctk.CTk):
                 self.enh_label.configure(text="Live preview disabled", image="")
                 self.current_enh_image = None
             except Exception:
-                pass  # ignore harmless cleanup errors
+                pass
 
     def start_export(self):
         if self.export_running:
@@ -521,13 +501,6 @@ class NotYUpscalerZAI(ctk.CTk):
         if self.current_model is None:
             messagebox.showwarning("Model error", "Model failed to load.")
             return
-
-        if self.is_video and self.video_duration_sec > 0:
-            est_mb = (self.bitrate_s.get() * self.video_duration_sec * 1.15) / 8
-            if est_mb > 1800:
-                if not messagebox.askyesno("Large file warning",
-                                           f"Estimated output size ~{est_mb/1024:.1f} GB.\nContinue anyway?"):
-                    return
 
         self.disable_ui()
         self.export_running = True
@@ -545,7 +518,7 @@ class NotYUpscalerZAI(ctk.CTk):
     def disable_ui(self):
         widgets = [
             self.select_btn, self.output_btn, self.model_menu, self.target_menu,
-            self.format_menu, self.sharpen_s, self.bitrate_s, self.preset_menu,
+            self.format_menu, self.sharpen_s, self.bitrate_s,
             self.play_btn, self.timeline, self.preview_toggle_btn, self.export_btn
         ]
         for w in widgets:
@@ -555,7 +528,7 @@ class NotYUpscalerZAI(ctk.CTk):
     def enable_ui(self):
         widgets = [
             self.select_btn, self.output_btn, self.model_menu, self.target_menu,
-            self.format_menu, self.sharpen_s, self.bitrate_s, self.preset_menu,
+            self.format_menu, self.sharpen_s, self.bitrate_s,
             self.play_btn, self.timeline, self.preview_toggle_btn, self.export_btn
         ]
         for w in widgets:
@@ -576,7 +549,7 @@ class NotYUpscalerZAI(ctk.CTk):
                 h, w = img.shape[:2]
                 nw, nh = self.calculate_size(w, h)
                 up = cv2.resize(img, (nw, nh), cv2.INTER_LANCZOS4)
-                sharpen = self.sharpen_s.get()
+                sharpen = min(max(self.sharpen_s.get(), 0.5), 3.0)  # safe range for filter
                 kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (int(sharpen*3), int(sharpen*3)))
                 enhanced = cv2.filter2D(up, -1, kernel)
                 cv2.imwrite(out_path, enhanced, [int(cv2.IMWRITE_JPEG_QUALITY), 92])
@@ -602,13 +575,26 @@ class NotYUpscalerZAI(ctk.CTk):
                 cap.release()
 
                 nw, nh = self.calculate_size(w, h)
-                sharpen = self.sharpen_s.get()
-                vf = f"scale={nw}:{nh}:flags=lanczos,unsharp=5:5:{sharpen*1.5}"
 
+                # Auto preset based on bitrate
                 bitrate_mbps = self.bitrate_s.get()
+                if bitrate_mbps <= 8:
+                    preset = "veryfast"
+                elif bitrate_mbps <= 15:
+                    preset = "faster"
+                elif bitrate_mbps <= 25:
+                    preset = "fast"
+                elif bitrate_mbps <= 40:
+                    preset = "medium"
+                else:
+                    preset = "slow"
+
+                sharpen = min(max(self.sharpen_s.get(), 0.5), 3.0)  # safe clamp
+                vf = f"scale={nw}:{nh}:flags=lanczos,unsharp=5:5:{sharpen*1.2}"
+
                 video_bitrate = f"{int(bitrate_mbps * 1000)}k"
-                maxrate      = f"{int(bitrate_mbps * 1.4 * 1000)}k"
-                bufsize      = f"{int(bitrate_mbps * 1.8 * 1000)}k"
+                maxrate      = f"{int(bitrate_mbps * 1.5 * 1000)}k"
+                bufsize      = f"{int(bitrate_mbps * 2 * 1000)}k"
 
                 fmt = self.format_var.get()
                 fc = FORMAT_CODECS.get(fmt, FORMAT_CODECS["mp4"])
@@ -618,7 +604,7 @@ class NotYUpscalerZAI(ctk.CTk):
                     ffmpeg_path, "-i", self.current_path,
                     "-vf", vf,
                     "-c:v", fc["c_v"],
-                    "-preset", self.preset_var.get(),
+                    "-preset", preset,
                     "-b:v", video_bitrate,
                     "-maxrate", maxrate,
                     "-bufsize", bufsize,
@@ -679,10 +665,7 @@ class NotYUpscalerZAI(ctk.CTk):
 
                 if self.export_process.returncode != 0 and not self.export_cancel_requested:
                     err = self.export_process.stderr.read(2048)
-                    if "too large" in err.lower() or "Result too large" in err:
-                        error_msg = "Output file would be too large.\n\nTry:\n• Lower bitrate (8–15 Mbps)\n• Faster preset (veryfast/faster)\n• Lower resolution target"
-                    else:
-                        error_msg = f"FFmpeg failed (code {self.export_process.returncode})\n{err}"
+                    error_msg = f"FFmpeg failed (code {self.export_process.returncode})\n{err}"
                     raise RuntimeError(error_msg)
 
                 if not self.export_cancel_requested:
