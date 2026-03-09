@@ -10,9 +10,43 @@ import subprocess
 from PIL import Image
 import re
 import time
+import sys
+import shutil
+import numpy as np
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
+
+# ─────────────────────────────────────────────────────────────
+# FFmpeg helpers
+# ─────────────────────────────────────────────────────────────
+def get_ffmpeg_path():
+    try:
+        subprocess.run(["ffmpeg", "-version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        print("Using system FFmpeg")
+        return "ffmpeg"
+    except:
+        if getattr(sys, 'frozen', False):
+            base = sys._MEIPASS
+        else:
+            base = os.path.dirname(os.path.abspath(__file__))
+        bundled = os.path.join(base, "ffmpeg.exe")
+        if os.path.isfile(bundled):
+            print("Using bundled FFmpeg")
+            return bundled
+        raise FileNotFoundError("FFmpeg not found. Install it or place ffmpeg.exe next to script.")
+
+def get_ffprobe_path():
+    try:
+        subprocess.run(["ffprobe", "-version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        return "ffprobe"
+    except:
+        if getattr(sys, 'frozen', False):
+            base = sys._MEIPASS
+        else:
+            base = os.path.dirname(os.path.abspath(__file__))
+        probe = os.path.join(base, "ffprobe.exe")
+        return probe if os.path.isfile(probe) else None
 
 VIDEO_MODELS = {
     "Lite Restore": "lite_restore",
@@ -26,15 +60,16 @@ IMAGE_MODEL = {
 
 CONFIG_FILE = "config.json"
 
-# Format codecs for FFmpeg compatibility (optimized for AE import)
 FORMAT_CODECS = {
-    "mp4": {"c_v": "libx264", "c_a": "aac", "f": None, "movflags": "+faststart", "audio_b": "192k"},
-    "mov": {"c_v": "libx264", "c_a": "aac", "f": "mov", "movflags": None, "audio_b": "192k"},
-    "m4v": {"c_v": "libx264", "c_a": "aac", "f": "ipod", "movflags": "+faststart", "audio_b": "192k"},
-    "avi": {"c_v": "mpeg4", "c_a": "mp2", "f": "avi", "movflags": None, "audio_b": "192k"},
-    "mxf": {"c_v": "mpeg2video", "c_a": "pcm_s16le", "f": "mxf", "movflags": None, "audio_b": None},
-    "3gp": {"c_v": "mpeg4", "c_a": "aac", "f": "3gp", "movflags": None, "audio_b": "128k"}
+    "mp4":  {"c_v": "libx264", "c_a": "aac",  "f": None,     "movflags": "+faststart", "audio_b": "192k"},
+    "mov":  {"c_v": "libx264", "c_a": "aac",  "f": "mov",    "movflags": None,         "audio_b": "192k"},
+    "m4v":  {"c_v": "libx264", "c_a": "aac",  "f": "ipod",   "movflags": "+faststart", "audio_b": "192k"},
+    "avi":  {"c_v": "mpeg4",   "c_a": "mp2",  "f": "avi",    "movflags": None,         "audio_b": "192k"},
+    "mxf":  {"c_v": "mpeg2video", "c_a": "pcm_s16le", "f": "mxf", "movflags": None,   "audio_b": None},
+    "3gp":  {"c_v": "mpeg4",   "c_a": "aac",  "f": "3gp",    "movflags": None,         "audio_b": "128k"}
 }
+
+FFMPEG_PRESETS = ["ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow", "slower", "veryslow"]
 
 class NotYUpscalerZAI(ctk.CTk):
     def __init__(self):
@@ -63,9 +98,11 @@ class NotYUpscalerZAI(ctk.CTk):
         self.playing = False
         self.current_frame_bgr = None
         self.output_folder = None
+        self.video_duration_sec = 0
 
         self.current_orig_preview = None
         self.current_enh_preview  = None
+        self.current_enh_image    = None   # strong reference to CTkImage
 
         self.current_model_dict = VIDEO_MODELS
         self.current_model = None
@@ -78,6 +115,8 @@ class NotYUpscalerZAI(ctk.CTk):
         self.detect_specs()
 
         self.create_ui()
+
+        self.last_preview_time = 0  # throttle live updates
 
     def load_config(self):
         if os.path.exists(CONFIG_FILE):
@@ -101,181 +140,205 @@ class NotYUpscalerZAI(ctk.CTk):
         except:
             self.has_cuda = False
 
-        if self.ram_gb < 8 or self.cores <= 2:
-            self.recommended = "CPU only"
-        elif self.has_cuda:
-            self.recommended = "GPU (if available)"
-        else:
-            self.recommended = "Auto"
-
     def create_ui(self):
-        # Top bar
         top = ctk.CTkFrame(self, height=64, fg_color="#161b22", corner_radius=0)
         top.pack(fill="x")
         top.pack_propagate(False)
 
-        ctk.CTkLabel(top, text="NotY Upscaler ZAI", font=ctk.CTkFont(size=22, weight="bold"),
+        ctk.CTkLabel(top, text="NotY Upscaler ZAI", font=ctk.CTkFont(family="Segoe UI", size=22, weight="bold"),
                      text_color=self.accent).pack(side="left", padx=24, pady=12)
 
         self.specs_label = ctk.CTkLabel(top, text=f"RAM: {self.ram_gb:.1f} GB • Cores: {self.cores} • {'CUDA' if self.has_cuda else 'CPU'}",
-                                        font=ctk.CTkFont(size=13), text_color="#8b949e")
+                                        font=ctk.CTkFont(family="Segoe UI", size=13), text_color="#a0a0a0")
         self.specs_label.pack(side="right", padx=24, pady=12)
 
-        # Main content
         content = ctk.CTkFrame(self, fg_color="#0d1117")
-        content.pack(fill="both", expand=True)
+        content.pack(fill="both", expand=True, padx=12, pady=12)
 
         content.grid_rowconfigure(0, weight=1)
-        content.grid_columnconfigure(0, weight=1)
-        content.grid_columnconfigure(1, weight=0)
+        content.grid_columnconfigure(0, weight=3)
+        content.grid_columnconfigure(1, weight=1)
 
-        # Left: Preview Area
-        left = ctk.CTkFrame(content, fg_color="#161b22", corner_radius=12)
-        left.grid(row=0, column=0, sticky="nsew", padx=16, pady=16)
+        left = ctk.CTkFrame(content, fg_color="#161b22", corner_radius=10)
+        left.grid(row=0, column=0, sticky="nsew", padx=(0,8))
 
         left.grid_rowconfigure(0, weight=1)
         left.grid_columnconfigure(0, weight=1)
         left.grid_columnconfigure(1, weight=1)
 
         orig_panel = ctk.CTkFrame(left, fg_color="transparent")
-        orig_panel.grid(row=0, column=0, sticky="nsew", padx=(0,8))
-        ctk.CTkLabel(orig_panel, text="ORIGINAL", font=ctk.CTkFont(size=16, weight="bold"),
-                     text_color="#8b949e").pack(pady=(12,4))
-        self.orig_label = ctk.CTkLabel(orig_panel, text="Select media", width=680, height=460,
-                                       fg_color="#0d1117", corner_radius=10)
-        self.orig_label.pack(pady=8, expand=True, fill="both")
+        orig_panel.grid(row=0, column=0, sticky="nsew", padx=(8,4), pady=8)
+        ctk.CTkLabel(orig_panel, text="ORIGINAL", font=ctk.CTkFont(size=15, weight="bold"), text_color="gray").pack(pady=(8,4))
+        self.orig_label = ctk.CTkLabel(orig_panel, text="Select media", width=680, height=460, fg_color="#11151c", corner_radius=8)
+        self.orig_label.pack(expand=True, fill="both")
 
         enh_panel = ctk.CTkFrame(left, fg_color="transparent")
-        enh_panel.grid(row=0, column=1, sticky="nsew", padx=(8,0))
-        ctk.CTkLabel(enh_panel, text="ENHANCED", font=ctk.CTkFont(size=16, weight="bold"),
-                     text_color=self.accent).pack(pady=(12,4))
-        self.enh_label = ctk.CTkLabel(enh_panel, text="Live preview disabled", width=680, height=460,
-                                      fg_color="#0d1117", corner_radius=10)
-        self.enh_label.pack(pady=8, expand=True, fill="both")
+        enh_panel.grid(row=0, column=1, sticky="nsew", padx=(4,8), pady=8)
+        ctk.CTkLabel(enh_panel, text="ENHANCED", font=ctk.CTkFont(size=15, weight="bold"), text_color=self.accent).pack(pady=(8,4))
+        self.enh_label = ctk.CTkLabel(enh_panel, text="Live preview disabled", width=680, height=460, fg_color="#11151c", corner_radius=8)
+        self.enh_label.pack(expand=True, fill="both")
 
         ctrl = ctk.CTkFrame(left, fg_color="#161b22")
-        ctrl.grid(row=1, column=0, columnspan=2, sticky="ew", pady=12, padx=12)
+        ctrl.grid(row=1, column=0, columnspan=2, sticky="ew", pady=10, padx=12)
 
-        self.play_btn = ctk.CTkButton(ctrl, text="▶  Play", width=110, height=42,
-                                      font=ctk.CTkFont(size=14), command=lambda: self.toggle_play())
+        self.play_btn = ctk.CTkButton(ctrl, text="▶ Play", width=110, height=40, font=ctk.CTkFont(size=14), command=self.toggle_play)
         self.play_btn.pack(side="left", padx=8)
 
-        self.timeline = ctk.CTkSlider(ctrl, from_=0, to=100,
-                                      command=lambda v: self.on_timeline_change(v),
-                                      height=24, button_length=32, fg_color="#21262d", progress_color=self.accent)
+        self.timeline = ctk.CTkSlider(ctrl, from_=0, to=100, command=self.on_timeline_change,
+                                      height=20, button_length=30, fg_color="#2a2f38", progress_color=self.accent)
         self.timeline.pack(side="left", fill="x", expand=True, padx=12)
         self.timeline.set(0)
 
-        ctk.CTkButton(ctrl, text="Open in Player", width=140, height=42,
-                      command=lambda: self.open_in_system_player()).pack(side="right", padx=8)
+        ctk.CTkButton(ctrl, text="Open in Player", width=140, height=40, command=self.open_in_system_player).pack(side="right", padx=8)
 
-        self.info_label = ctk.CTkLabel(left, text="No file loaded", font=ctk.CTkFont(size=13),
-                                       text_color="#8b949e")
+        self.info_label = ctk.CTkLabel(left, text="No file loaded", font=ctk.CTkFont(size=13), text_color="gray")
         self.info_label.grid(row=2, column=0, columnspan=2, pady=8)
 
-        # Bottom-left controls (LHS bottom)
         bottom_left = ctk.CTkFrame(left, fg_color="#161b22")
-        bottom_left.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(12,16), padx=12)
+        bottom_left.grid(row=3, column=0, columnspan=2, sticky="ew", pady=12, padx=12)
 
-        self.export_btn = ctk.CTkButton(bottom_left, text="Export", height=48,
-                                        fg_color="#1f6feb", hover_color="#388bfd",
-                                        font=ctk.CTkFont(size=15, weight="bold"),
-                                        command=self.start_export)
+        self.export_btn = ctk.CTkButton(bottom_left, text="Export", height=48, fg_color="#1e88e5", hover_color="#1565c0",
+                                        font=ctk.CTkFont(size=15, weight="bold"), command=self.start_export)
         self.export_btn.pack(side="left", padx=8, fill="x", expand=True)
 
-        self.preview_toggle_btn = ctk.CTkButton(bottom_left, text="Live Preview: OFF",
-                                                fg_color="#21262d", hover_color="#30363d",
-                                                command=self.toggle_live_preview, height=48)
+        self.preview_toggle_btn = ctk.CTkButton(bottom_left, text="Live Preview: OFF", height=48,
+                                                fg_color="#2a2f38", hover_color="#3a3f48", command=self.toggle_live_preview)
         self.preview_toggle_btn.pack(side="right", padx=8)
 
-        # Right sidebar
-        right = ctk.CTkScrollableFrame(content, width=380, fg_color="#161b22", corner_radius=12)
-        right.grid(row=0, column=1, sticky="nsew", padx=(0,16), pady=16)
+        right = ctk.CTkScrollableFrame(content, width=380, fg_color="#161b22", corner_radius=10)
+        right.grid(row=0, column=1, sticky="nsew", padx=(8,0), pady=0)
 
-        ctk.CTkLabel(right, text="INPUT & OUTPUT", font=ctk.CTkFont(size=15, weight="bold")).pack(anchor="w", padx=24, pady=(24,8))
+        ctk.CTkLabel(right, text="FILE & OUTPUT", font=ctk.CTkFont(size=16, weight="bold")).pack(anchor="w", padx=24, pady=(20,8))
 
-        ctk.CTkButton(right, text="📂  Select Image / Video", height=52,
-                      font=ctk.CTkFont(size=15, weight="bold"),
-                      fg_color=self.accent, text_color="#000000",
-                      command=self.select_file).pack(pady=8, padx=24, fill="x")
+        self.select_btn = ctk.CTkButton(right, text="Select Image / Video", height=50,
+                                        fg_color=self.accent, text_color="black", command=self.select_file)
+        self.select_btn.pack(pady=6, padx=24, fill="x")
 
-        self.file_name = ctk.CTkLabel(right, text="No file selected", text_color="#8b949e")
-        self.file_name.pack(pady=8)
+        self.file_name = ctk.CTkLabel(right, text="No file selected", text_color="gray")
+        self.file_name.pack(pady=4)
 
-        ctk.CTkButton(right, text="📁  Choose Output Folder", height=48,
-                      fg_color="#238636", hover_color="#2ea043",
-                      command=self.choose_output_folder).pack(pady=8, padx=24, fill="x")
+        self.output_btn = ctk.CTkButton(right, text="Choose Output Folder", height=44,
+                                        fg_color="#2e7d32", hover_color="#1b5e20", command=self.choose_output_folder)
+        self.output_btn.pack(pady=6, padx=24, fill="x")
 
-        self.output_status = ctk.CTkLabel(right, text="Output: same as input", text_color="#8b949e")
-        self.output_status.pack(pady=8)
+        self.output_status = ctk.CTkLabel(right, text="Output: same as input", text_color="gray")
+        self.output_status.pack(pady=4)
 
-        # Export Progress Section
-        ctk.CTkLabel(right, text="EXPORT PROGRESS", font=ctk.CTkFont(size=15, weight="bold")).pack(anchor="w", padx=24, pady=(24,8))
+        ctk.CTkLabel(right, text="EXPORT PROGRESS", font=ctk.CTkFont(size=16, weight="bold")).pack(anchor="w", padx=24, pady=(24,8))
 
-        self.progress_bar = ctk.CTkProgressBar(right, width=320, height=20, mode="determinate",
-                                               fg_color="#21262d", progress_color=self.success)
-        self.progress_bar.pack(pady=12, padx=24)
+        self.progress_bar = ctk.CTkProgressBar(right, width=320, height=18, mode="determinate",
+                                               fg_color="#2a2f38", progress_color=self.success)
+        self.progress_bar.pack(pady=8, padx=24)
         self.progress_bar.set(0)
         self.progress_bar.pack_forget()
 
-        self.progress_label = ctk.CTkLabel(right, text="0%", font=ctk.CTkFont(size=16, weight="bold"),
-                                           text_color=self.success)
+        self.progress_label = ctk.CTkLabel(right, text="0%", font=ctk.CTkFont(size=16, weight="bold"), text_color=self.success)
         self.progress_label.pack(pady=4)
         self.progress_label.pack_forget()
 
-        self.cancel_btn = ctk.CTkButton(right, text="✖  Cancel Export", height=42,
-                                        fg_color=self.danger, hover_color="#cc0000",
-                                        command=self.cancel_export)
+        self.cancel_btn = ctk.CTkButton(right, text="Cancel Export", height=44,
+                                        fg_color=self.danger, hover_color="#c62828", command=self.cancel_export)
         self.cancel_btn.pack(pady=8, padx=24, fill="x")
         self.cancel_btn.pack_forget()
 
-        # Settings section
-        ctk.CTkLabel(right, text="SETTINGS", font=ctk.CTkFont(size=15, weight="bold")).pack(anchor="w", padx=24, pady=(24,8))
+        ctk.CTkLabel(right, text="SETTINGS", font=ctk.CTkFont(size=16, weight="bold")).pack(anchor="w", padx=24, pady=(24,8))
 
-        ctk.CTkLabel(right, text="Model", font=ctk.CTkFont(size=14)).pack(anchor="w", padx=24, pady=(8,4))
+        ctk.CTkLabel(right, text="Model", font=ctk.CTkFont(size=14)).pack(anchor="w", padx=24, pady=(8,2))
         self.model_var = ctk.StringVar(value="Ultra Native")
         self.model_menu = ctk.CTkOptionMenu(right, values=list(self.current_model_dict.keys()),
-                                            variable=self.model_var, command=self.on_model_change,
-                                            fg_color="#21262d", button_color="#30363d")
-        self.model_menu.pack(padx=24, pady=6, fill="x")
+                                            variable=self.model_var,
+                                            command=self.on_model_change,  # ← fixed: pass function reference
+                                            fg_color="#2a2f38", button_color="#3a3f48")
+        self.model_menu.pack(padx=24, pady=4, fill="x")
 
-        ctk.CTkLabel(right, text="Target Resolution", font=ctk.CTkFont(size=14)).pack(anchor="w", padx=24, pady=(16,4))
+        ctk.CTkLabel(right, text="Target Resolution", font=ctk.CTkFont(size=14)).pack(anchor="w", padx=24, pady=(12,2))
         self.target_var = ctk.StringVar(value="Fit 4K")
-        ctk.CTkOptionMenu(right, values=["Fit 2K","Fit 3K","Fit 4K"],
-                          variable=self.target_var, fg_color="#21262d", button_color="#30363d").pack(padx=24, pady=6, fill="x")
+        self.target_menu = ctk.CTkOptionMenu(right, values=["Fit 2K","Fit 3K","Fit 4K"],
+                                             variable=self.target_var, fg_color="#2a2f38", button_color="#3a3f48",
+                                             command=self.update_size_estimate)
+        self.target_menu.pack(padx=24, pady=4, fill="x")
 
-        # Video-specific: Bitrate slider frame
-        self.bitrate_frame = ctk.CTkFrame(right, fg_color="transparent")
-        ctk.CTkLabel(self.bitrate_frame, text="Video Bitrate (Mbps)", font=ctk.CTkFont(size=14)).pack(anchor="w", padx=24, pady=(16,4))
-        self.bitrate_s = ctk.CTkSlider(self.bitrate_frame, from_=15, to=45, height=20,
-                                       command=lambda v: self.update_model_params())
-        self.bitrate_s.set(25)
-        self.bitrate_s.pack(padx=24, pady=6, fill="x")
-        # Initially hidden
-
-        # Video-specific: Output format frame
         self.format_frame = ctk.CTkFrame(right, fg_color="transparent")
-        ctk.CTkLabel(self.format_frame, text="Output Format", font=ctk.CTkFont(size=14)).pack(anchor="w", padx=24, pady=(16,4))
+        ctk.CTkLabel(self.format_frame, text="Output Format", font=ctk.CTkFont(size=14)).pack(anchor="w", padx=24, pady=(12,2))
         self.format_var = ctk.StringVar(value="mp4")
         self.format_menu = ctk.CTkOptionMenu(self.format_frame, values=list(FORMAT_CODECS.keys()),
-                                             variable=self.format_var, fg_color="#21262d", button_color="#30363d")
-        self.format_menu.pack(padx=24, pady=6, fill="x")
-        # Initially hidden
+                                             variable=self.format_var, fg_color="#2a2f38", button_color="#3a3f48",
+                                             command=self.update_size_estimate)
+        self.format_menu.pack(padx=24, pady=4, fill="x")
 
-        adj = ctk.CTkFrame(right, fg_color="#0d1117", corner_radius=8)
-        adj.pack(pady=20, padx=24, fill="x")
-        ctk.CTkLabel(adj, text="Sharpen Strength", font=ctk.CTkFont(size=14, weight="bold")).pack(pady=12)
-        self.sharpen_s = ctk.CTkSlider(adj, from_=0.5, to=4.0, command=lambda v: (self.update_model_params(), self.live_update()))
-        self.sharpen_s.set(2.2)
-        self.sharpen_s.pack(padx=20, pady=(0,16), fill="x")
+        adj = ctk.CTkFrame(right, fg_color="#1e1e2e", corner_radius=8)
+        adj.pack(pady=16, padx=20, fill="x")
+
+        ctk.CTkLabel(adj, text="Sharpen Strength", font=ctk.CTkFont(size=14, weight="bold")).pack(pady=(12,4))
+        self.sharpen_s = ctk.CTkSlider(adj, from_=0.5, to=4.0, command=self.on_sharpen_change,
+                                       fg_color="#2a2f38", progress_color=self.accent)
+        self.sharpen_s.set(2.0)
+        self.sharpen_s.pack(padx=20, pady=(0,12), fill="x")
+
+        bitrate_frame = ctk.CTkFrame(adj, fg_color="transparent")
+        bitrate_frame.pack(fill="x", pady=8)
+
+        ctk.CTkLabel(bitrate_frame, text="Bitrate (Mbps)", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=4)
+        self.bitrate_s = ctk.CTkSlider(bitrate_frame, from_=4, to=35, number_of_steps=31, command=self.on_bitrate_change,
+                                       fg_color="#2a2f38", progress_color=self.success)
+        self.bitrate_s.set(12)
+        self.bitrate_s.pack(padx=4, pady=(4,0), fill="x")
+
+        self.bitrate_label = ctk.CTkLabel(bitrate_frame, text="12 Mbps", font=ctk.CTkFont(size=13))
+        self.bitrate_label.pack(anchor="w", padx=4, pady=2)
+
+        preset_frame = ctk.CTkFrame(adj, fg_color="transparent")
+        preset_frame.pack(fill="x", pady=8)
+
+        ctk.CTkLabel(preset_frame, text="Encoding Speed", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=4)
+        self.preset_var = ctk.StringVar(value="medium")
+        self.preset_menu = ctk.CTkOptionMenu(preset_frame, values=FFMPEG_PRESETS,
+                                             variable=self.preset_var, fg_color="#2a2f38", button_color="#3a3f48",
+                                             command=self.update_size_estimate)
+        self.preset_menu.pack(padx=4, pady=4, fill="x")
+
+        self.size_estimate_label = ctk.CTkLabel(adj, text="Estimated size: —", font=ctk.CTkFont(size=13), text_color="#a0a0ff")
+        self.size_estimate_label.pack(pady=12, anchor="w", padx=20)
 
         self.status = ctk.CTkLabel(right, text="", text_color=self.accent, font=ctk.CTkFont(size=13))
         self.status.pack(pady=16)
 
+        self.format_frame.pack_forget()
+
+    def update_size_estimate(self, *args):
+        if not self.is_video or not self.video_duration_sec:
+            self.size_estimate_label.configure(text="Estimated size: —")
+            return
+
+        bitrate_mbps = self.bitrate_s.get()
+        preset_factor = {
+            "ultrafast": 0.6, "superfast": 0.7, "veryfast": 0.8, "faster": 0.9,
+            "fast": 1.0, "medium": 1.1, "slow": 1.3, "slower": 1.5, "veryslow": 1.8
+        }.get(self.preset_var.get(), 1.1)
+
+        size_mb = (bitrate_mbps * self.video_duration_sec * 1.15 * preset_factor) / 8
+        if size_mb > 1024:
+            text = f"Estimated size: ~{size_mb/1024:.1f} GB"
+        else:
+            text = f"Estimated size: ~{size_mb:.1f} MB"
+
+        color = "#ff9800" if size_mb > 1500 else "#a0a0ff"
+        self.size_estimate_label.configure(text=text, text_color=color)
+
+    def on_bitrate_change(self, value):
+        self.bitrate_label.configure(text=f"{int(value)} Mbps")
+        self.update_size_estimate()
+
+    def on_sharpen_change(self, value):
+        if self.current_model:
+            self.current_model.sharpen = value
+        if self.live_enabled:
+            self.live_update()
+
     def on_model_change(self, selected):
         self.model_var.set(selected)
         self.update_model()
-        if self.live_enabled:
+        if self.live_enabled and self.current_frame_bgr is not None:
             self.live_update()
 
     def update_model(self):
@@ -289,34 +352,31 @@ class NotYUpscalerZAI(ctk.CTk):
                 elif model_name == "Pro Detail":
                     from models.pro_detail import ProDetailEnhancer
                     self.current_model = ProDetailEnhancer(sharpen=sharpen)
-                else:  # Ultra Native
+                else:
                     from models.ultra_native import UltraNativeEnhancer
                     self.current_model = UltraNativeEnhancer(sharpen=sharpen)
             else:
                 from models.image_enhance import ImageEnhanceModel
                 self.current_model = ImageEnhanceModel(sharpen=sharpen)
-        except ImportError:
-            messagebox.showerror("Error", "Model file not found. Ensure models/ folder is present.")
+        except Exception as e:
+            messagebox.showerror("Model Error", f"Failed to load model:\n{str(e)}")
             self.current_model = None
-
-    def update_model_params(self):
-        if self.current_model:
-            self.current_model.sharpen = self.sharpen_s.get()
 
     def select_file(self):
         path = filedialog.askopenfilename(filetypes=[("Media","*.jpg *.jpeg *.png *.webp *.mp4 *.mkv *.avi *.mov")])
-        if not path: return
+        if not path:
+            return
+
         self.current_path = path
         self.is_video = path.lower().endswith(('.mp4','.mkv','.avi','.mov'))
-        self.file_name.configure(text=os.path.basename(path)[:38])
+        self.file_name.configure(text=os.path.basename(path)[:40])
 
-        # Show/hide video-specific frames
         if self.is_video:
-            self.bitrate_frame.pack(fill="x", pady=(0,10))
-            self.format_frame.pack(fill="x", pady=(0,20))
+            self.format_frame.pack(fill="x", pady=(8,0))
+            self.update_size_estimate()
         else:
-            self.bitrate_frame.pack_forget()
             self.format_frame.pack_forget()
+            self.size_estimate_label.configure(text="Estimated size: —")
 
         if self.is_video:
             self.current_model_dict = VIDEO_MODELS
@@ -349,19 +409,28 @@ class NotYUpscalerZAI(ctk.CTk):
             self.live_update()
 
     def load_video(self):
-        if self.cap: self.cap.release()
+        if self.cap:
+            self.cap.release()
         self.cap = cv2.VideoCapture(self.current_path)
         if not self.cap.isOpened():
             messagebox.showerror("Error", "Cannot open video")
             return
-        total = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        self.timeline.configure(from_=0, to=max(total-1, 1))
+
+        total_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        fps = self.cap.get(cv2.CAP_PROP_FPS) or 30
+        self.video_duration_sec = total_frames / fps if fps > 0 else 0
+
+        self.timeline.configure(from_=0, to=max(total_frames-1, 1))
         self.timeline.set(0)
         self.update_video_frame()
-        self.after(200, self.live_update)
+        self.update_size_estimate()
+
+        if self.live_enabled:
+            self.after(200, self.live_update)
 
     def update_video_frame(self):
-        if not self.cap or not self.cap.isOpened(): return
+        if not self.cap or not self.cap.isOpened():
+            return
         pos = int(self.timeline.get())
         self.cap.set(cv2.CAP_PROP_POS_FRAMES, pos)
         ret, frame = self.cap.read()
@@ -374,19 +443,33 @@ class NotYUpscalerZAI(ctk.CTk):
             self.after(33, self.update_video_frame)
 
     def show_frame(self, bgr, label):
-        if bgr is None: return
-        rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
-        pil = Image.fromarray(rgb)
-        pil = pil.resize((680, 460), Image.LANCZOS)
-        cimg = ctk.CTkImage(pil, size=(680, 460))
-        label.configure(image=cimg, text="")
-        if label == self.enh_label:
-            self.current_enh_preview = cimg
-        else:
-            self.current_orig_preview = cimg
+        if bgr is None:
+            return
+        try:
+            rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+            pil = Image.fromarray(rgb)
+            w, h = pil.size
+            max_w, max_h = 680, 460
+            ratio = min(max_w / w, max_h / h)
+            new_size = (int(w * ratio), int(h * ratio))
+            resized = pil.resize(new_size, Image.LANCZOS)
+            bg = Image.new('RGB', (max_w, max_h), (13, 17, 23))
+            bg.paste(resized, ((max_w - new_size[0]) // 2, (max_h - new_size[1]) // 2))
+            cimg = ctk.CTkImage(bg, size=(680, 460))
+
+            if label == self.enh_label:
+                self.current_enh_image = cimg   # keep strong ref
+                self.current_enh_preview = cimg
+            else:
+                self.current_orig_preview = cimg
+
+            label.configure(image=cimg, text="")
+        except Exception as e:
+            print("show_frame error:", str(e))
 
     def toggle_play(self):
-        if not self.is_video: return
+        if not self.is_video:
+            return
         self.playing = not self.playing
         self.play_btn.configure(text="❚❚ Pause" if self.playing else "▶ Play")
         if self.playing:
@@ -397,10 +480,18 @@ class NotYUpscalerZAI(ctk.CTk):
             self.update_video_frame()
 
     def live_update(self, val=None):
-        if not self.live_enabled or self.current_frame_bgr is None or self.current_model is None:
+        if not self.live_enabled or self.current_frame_bgr is None:
             return
+
+        current_time = time.time()
+        if current_time - self.last_preview_time < 0.15:  # ~6 fps max
+            return
+        self.last_preview_time = current_time
+
         try:
-            enhanced = self.current_model.enhance_frame(self.current_frame_bgr.copy())
+            sharpen = self.sharpen_s.get()
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (int(sharpen*3), int(sharpen*3)))
+            enhanced = cv2.filter2D(self.current_frame_bgr.copy(), -1, kernel)
             self.show_frame(enhanced, self.enh_label)
         except Exception as e:
             print("Live preview error:", str(e))
@@ -408,62 +499,101 @@ class NotYUpscalerZAI(ctk.CTk):
     def toggle_live_preview(self):
         self.live_enabled = not self.live_enabled
         txt = "ON" if self.live_enabled else "OFF"
-        col = self.accent if self.live_enabled else "#21262d"
+        col = self.accent if self.live_enabled else "#2a2f38"
         self.preview_toggle_btn.configure(text=f"Live Preview: {txt}", fg_color=col)
+
         if self.live_enabled and self.current_frame_bgr is not None:
             self.live_update()
-        elif not self.live_enabled:
-            self.enh_label.configure(text="Live preview disabled", image=None)
+        else:
+            try:
+                self.enh_label.configure(text="Live preview disabled", image="")
+                self.current_enh_image = None
+            except Exception:
+                pass  # ignore harmless cleanup errors
 
     def start_export(self):
         if self.export_running:
-            messagebox.showwarning("Already Exporting", "An export process is already running.\nPlease wait or cancel it first.")
+            messagebox.showwarning("Busy", "Export already running.")
             return
-
         if not self.current_path:
-            messagebox.showwarning("No file", "Please select a file first")
+            messagebox.showwarning("No file", "Select a file first.")
             return
-
         if self.current_model is None:
-            messagebox.showwarning("No Model", "Please select a model first")
+            messagebox.showwarning("Model error", "Model failed to load.")
             return
 
+        if self.is_video and self.video_duration_sec > 0:
+            est_mb = (self.bitrate_s.get() * self.video_duration_sec * 1.15) / 8
+            if est_mb > 1800:
+                if not messagebox.askyesno("Large file warning",
+                                           f"Estimated output size ~{est_mb/1024:.1f} GB.\nContinue anyway?"):
+                    return
+
+        self.disable_ui()
         self.export_running = True
         self.export_cancel_requested = False
         self.export_btn.configure(state="disabled", text="Exporting...", fg_color="#444c56")
         self.progress_bar.pack(pady=12, padx=24)
-        self.progress_label.pack(pady=4)
-        self.cancel_btn.pack(pady=8, padx=24, fill="x")
         self.progress_bar.set(0)
+        self.progress_label.pack(pady=4)
         self.progress_label.configure(text="0%")
+        self.cancel_btn.pack(pady=8, padx=24, fill="x")
         self.status.configure(text="Starting export...")
 
         threading.Thread(target=self.export_thread, daemon=True).start()
 
+    def disable_ui(self):
+        widgets = [
+            self.select_btn, self.output_btn, self.model_menu, self.target_menu,
+            self.format_menu, self.sharpen_s, self.bitrate_s, self.preset_menu,
+            self.play_btn, self.timeline, self.preview_toggle_btn, self.export_btn
+        ]
+        for w in widgets:
+            if w and w.winfo_exists():
+                w.configure(state="disabled")
+
+    def enable_ui(self):
+        widgets = [
+            self.select_btn, self.output_btn, self.model_menu, self.target_menu,
+            self.format_menu, self.sharpen_s, self.bitrate_s, self.preset_menu,
+            self.play_btn, self.timeline, self.preview_toggle_btn, self.export_btn
+        ]
+        for w in widgets:
+            if w and w.winfo_exists():
+                w.configure(state="normal")
+
     def export_thread(self):
         out_path = self.get_output_path(self.current_path)
+        error_msg = None
 
         try:
+            ffmpeg_path = get_ffmpeg_path()
+
             if not self.is_video:
                 img = cv2.imread(self.current_path)
                 if img is None:
                     raise ValueError("Cannot read image")
                 h, w = img.shape[:2]
                 nw, nh = self.calculate_size(w, h)
-                up = cv2.resize(img, (nw, nh), interpolation=cv2.INTER_LANCZOS4)
-                enhanced = self.current_model.enhance_frame(up)
-                cv2.imwrite(out_path, enhanced, [cv2.IMWRITE_JPEG_QUALITY, 95])
+                up = cv2.resize(img, (nw, nh), cv2.INTER_LANCZOS4)
+                sharpen = self.sharpen_s.get()
+                kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (int(sharpen*3), int(sharpen*3)))
+                enhanced = cv2.filter2D(up, -1, kernel)
+                cv2.imwrite(out_path, enhanced, [int(cv2.IMWRITE_JPEG_QUALITY), 92])
                 self.after(0, lambda: self._update_progress(100))
             else:
-                # Detect audio bitrate as fallback
+                probe = get_ffprobe_path()
                 audio_bitrate = "192k"
-                try:
-                    cmd_a = ["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=bit_rate", "-of", "default=noprint_wrappers=1:nokey=1", self.current_path]
-                    abr = subprocess.check_output(cmd_a, stderr=subprocess.STDOUT).decode().strip()
-                    if abr.isdigit():
-                        audio_bitrate = f"{int(abr) // 1000}k"
-                except:
-                    pass
+                if probe:
+                    try:
+                        cmd = [probe, "-v", "error", "-select_streams", "a:0",
+                               "-show_entries", "stream=bit_rate", "-of", "default=noprint_wrappers=1:nokey=1",
+                               self.current_path]
+                        abr = subprocess.check_output(cmd, stderr=subprocess.STDOUT).decode().strip()
+                        if abr.isdigit():
+                            audio_bitrate = f"{int(abr)//1000}k"
+                    except:
+                        pass
 
                 cap = cv2.VideoCapture(self.current_path)
                 total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -472,21 +602,23 @@ class NotYUpscalerZAI(ctk.CTk):
                 cap.release()
 
                 nw, nh = self.calculate_size(w, h)
-                vf = self.current_model.get_ffmpeg_vf(nw, nh)
+                sharpen = self.sharpen_s.get()
+                vf = f"scale={nw}:{nh}:flags=lanczos,unsharp=5:5:{sharpen*1.5}"
 
-                video_bitrate = f"{int(self.bitrate_s.get() * 1000)}k"
-                maxrate = f"{int(self.bitrate_s.get() * 1.5 * 1000)}k"
-                bufsize = f"{int(self.bitrate_s.get() * 2 * 1000)}k"
+                bitrate_mbps = self.bitrate_s.get()
+                video_bitrate = f"{int(bitrate_mbps * 1000)}k"
+                maxrate      = f"{int(bitrate_mbps * 1.4 * 1000)}k"
+                bufsize      = f"{int(bitrate_mbps * 1.8 * 1000)}k"
 
                 fmt = self.format_var.get()
                 fc = FORMAT_CODECS.get(fmt, FORMAT_CODECS["mp4"])
                 audio_b = fc.get("audio_b", audio_bitrate)
 
                 cmd = [
-                    "ffmpeg", "-i", self.current_path,
+                    ffmpeg_path, "-i", self.current_path,
                     "-vf", vf,
                     "-c:v", fc["c_v"],
-                    "-preset", "medium",
+                    "-preset", self.preset_var.get(),
                     "-b:v", video_bitrate,
                     "-maxrate", maxrate,
                     "-bufsize", bufsize,
@@ -503,50 +635,68 @@ class NotYUpscalerZAI(ctk.CTk):
 
                 cmd += ["-y", out_path]
 
-                # Run FFmpeg hidden (no console window)
-                startupinfo = subprocess.STARTUPINFO()
-                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                startupinfo.wShowWindow = subprocess.SW_HIDE
+                startupinfo = None
+                if os.name == 'nt':
+                    startupinfo = subprocess.STARTUPINFO()
+                    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                    startupinfo.wShowWindow = subprocess.SW_HIDE
 
-                self.export_process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                                       text=True, bufsize=1, startupinfo=startupinfo)
+                self.export_process = subprocess.Popen(
+                    cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    text=True, bufsize=1, startupinfo=startupinfo, universal_newlines=True
+                )
 
+                last_frame = 0
                 while self.export_process.poll() is None:
                     if self.export_cancel_requested:
                         self.export_process.terminate()
-                        try:
-                            time.sleep(0.5)
-                            if os.path.exists(out_path):
+                        self.export_process.wait(timeout=6)
+                        if os.path.exists(out_path):
+                            try:
                                 os.remove(out_path)
-                        except:
-                            pass
-                        self.after(0, lambda: messagebox.showinfo("Cancelled", "Export cancelled by user."))
+                            except:
+                                pass
+                        self.after(0, lambda: messagebox.showinfo("Cancelled", "Export cancelled."))
                         break
 
-                    line = self.export_process.stderr.readline()
-                    if "frame=" in line:
-                        try:
-                            frame = int(re.search(r'frame=\s*(\d+)', line).group(1))
-                            percent = min(100, int((frame / total_frames) * 100))
-                            self.after(0, lambda p=percent: self._update_progress(p))
-                        except:
-                            pass
-                    time.sleep(0.2)
+                    for _ in range(20):
+                        line = self.export_process.stderr.readline()
+                        if not line:
+                            break
+                        if "frame=" in line:
+                            try:
+                                m = re.search(r'frame=\s*(\d+)', line)
+                                if m:
+                                    frame = int(m.group(1))
+                                    if frame > last_frame:
+                                        last_frame = frame
+                                        percent = min(100, int((frame / total_frames) * 100))
+                                        self.after(0, lambda p=percent: self._update_progress(p))
+                            except:
+                                pass
+
+                    time.sleep(0.07)
 
                 if self.export_process.returncode != 0 and not self.export_cancel_requested:
-                    raise RuntimeError(f"FFmpeg failed (code {self.export_process.returncode})")
+                    err = self.export_process.stderr.read(2048)
+                    if "too large" in err.lower() or "Result too large" in err:
+                        error_msg = "Output file would be too large.\n\nTry:\n• Lower bitrate (8–15 Mbps)\n• Faster preset (veryfast/faster)\n• Lower resolution target"
+                    else:
+                        error_msg = f"FFmpeg failed (code {self.export_process.returncode})\n{err}"
+                    raise RuntimeError(error_msg)
 
                 if not self.export_cancel_requested:
                     self.after(0, lambda: self._update_progress(100))
-                    self.after(0, lambda: messagebox.showinfo("Success", f"Exported to:\n{out_path}"))
+                    self.after(0, lambda: messagebox.showinfo("Success", f"Saved to:\n{out_path}"))
 
         except Exception as e:
-            self.after(0, lambda msg=str(e): messagebox.showerror("Export Failed", msg))
+            error_msg = str(e)
+            self.after(0, lambda msg=error_msg: messagebox.showerror("Export Failed", msg))
         finally:
             self.after(0, self._finish_export_ui)
 
     def _update_progress(self, percent):
-        if hasattr(self, 'progress_bar') and self.progress_bar.winfo_exists():
+        if self.progress_bar and self.progress_bar.winfo_exists():
             self.progress_bar.set(percent / 100.0)
             self.progress_label.configure(text=f"{percent}%")
 
@@ -554,17 +704,18 @@ class NotYUpscalerZAI(ctk.CTk):
         self.export_running = False
         self.export_cancel_requested = False
         self.export_process = None
-        self.export_btn.configure(state="normal", text="Export", fg_color="#1f6feb")
+        self.export_btn.configure(state="normal", text="Export", fg_color="#1e88e5")
         self.progress_bar.pack_forget()
         self.progress_label.pack_forget()
         self.cancel_btn.pack_forget()
-        self.status.configure(text="Export finished")
+        self.status.configure(text="Export finished" if not self.export_cancel_requested else "Cancelled")
+        self.enable_ui()
 
     def cancel_export(self):
         if not self.export_running or not self.export_process:
             return
         self.export_cancel_requested = True
-        self.status.configure(text="Cancelling export...", text_color=self.danger)
+        self.status.configure(text="Cancelling...", text_color=self.danger)
         self.progress_label.configure(text="Cancelling...")
 
     def calculate_size(self, w, h):
@@ -588,22 +739,15 @@ class NotYUpscalerZAI(ctk.CTk):
             self.output_status.configure(text=f"Output: {os.path.basename(folder)}", text_color=self.accent)
 
     def get_output_path(self, input_path):
-        base = os.path.splitext(os.path.basename(input_path))[0]
+        base, _ = os.path.splitext(os.path.basename(input_path))
         if self.is_video:
-            fmt = self.format_var.get()
-            ext = f".{fmt}"
+            ext = f".{self.format_var.get()}"
         else:
             ext = os.path.splitext(input_path)[1]
         filename = f"{base}_enhanced{ext}"
         if self.output_folder and os.path.isdir(self.output_folder):
             return os.path.join(self.output_folder, filename)
         return os.path.join(os.path.dirname(input_path), filename)
-
-    def read_specs(self):
-        txt = f"RAM {self.ram_gb:.1f} GB • {self.cores} cores • {'CUDA' if self.has_cuda else 'CPU'}"
-        self.status.configure(text=txt)
-        self.config["specs_read"] = True
-        self.save_config()
 
 if __name__ == "__main__":
     app = NotYUpscalerZAI()

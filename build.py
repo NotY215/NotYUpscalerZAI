@@ -1,5 +1,5 @@
 # build_exe.py
-# Full production build script with proper icon + packages + models
+# Full production build script with proper icon + packages + models + bundled ffmpeg
 
 import PyInstaller.__main__
 import os
@@ -30,9 +30,10 @@ ensure_venv()
 # ─────────────────────────────────────────────────────────────
 # CONFIG
 # ─────────────────────────────────────────────────────────────
-SCRIPT      = "main.py"
-ICON_FILE   = "logo.ico"   # MUST be .ico for taskbar icon
-MODELS      = "models"
+SCRIPT      = "main.py"               # ← your actual app script
+ICON_FILE   = "logo.ico"
+MODELS_DIR  = "models"
+FFMPEG_DIR  = "ffmpeg"                # new!
 DIST        = r"F:\Own Apps\Installer"
 
 os.makedirs(DIST, exist_ok=True)
@@ -47,21 +48,33 @@ if not os.path.exists(ICON_FILE):
 print(f"Using icon: {ICON_FILE}")
 
 # ─────────────────────────────────────────────────────────────
-# ADD MODELS RECURSIVELY
+# COLLECT ALL ADD-DATA ITEMS
 # ─────────────────────────────────────────────────────────────
 add_data_args = []
 
-if os.path.exists(MODELS):
-    for root, dirs, files in os.walk(MODELS):
+# 1. Models folder (recursive)
+if os.path.exists(MODELS_DIR):
+    for root, dirs, files in os.walk(MODELS_DIR):
         for file in files:
             full_path = os.path.join(root, file)
             rel_path = os.path.relpath(root, ".")
-            add_data_args.append(f'--add-data={full_path};{rel_path}')
+            add_data_args.append(f'--add-data="{full_path};{rel_path}"')
 else:
     print("⚠ Warning: models folder not found")
 
-# Add icon to package (for runtime use)
-add_data_args.append(f'--add-data={ICON_FILE};.')
+# 2. Bundled ffmpeg files (important!)
+if os.path.exists(FFMPEG_DIR):
+    for file in ["ffmpeg.exe", "ffprobe.exe"]:
+        src = os.path.join(FFMPEG_DIR, file)
+        if os.path.exists(src):
+            add_data_args.append(f'--add-data="{src};."')   # put in root of extraction
+        else:
+            print(f"⚠ Warning: {file} not found in ffmpeg folder")
+else:
+    print("⚠ Warning: ffmpeg folder not found — building without bundled FFmpeg!")
+
+# 3. Icon file (for possible runtime use)
+add_data_args.append(f'--add-data="{ICON_FILE};."')
 
 # ─────────────────────────────────────────────────────────────
 # PYINSTALLER ARGUMENTS
@@ -83,6 +96,7 @@ args = [
     # Safety for OpenCV
     "--hidden-import=cv2",
 
+    # All collected data
     *add_data_args,
 
     f"--distpath={DIST}",
@@ -125,12 +139,14 @@ if os.path.exists(spec_file):
 # ─────────────────────────────────────────────────────────────
 # FINAL STATUS
 # ─────────────────────────────────────────────────────────────
-exe = os.path.join(DIST, SCRIPT.replace(".py", ".exe"))
+exe_name = SCRIPT.replace(".py", ".exe")
+exe = os.path.join(DIST, exe_name)
 
 print("\n" + "=" * 70)
 if os.path.exists(exe):
     print("🎉 BUILD SUCCESSFUL!")
     print(f"EXE location: {exe}")
+    print(f"Size will be larger now (~+50–70 MB due to ffmpeg)")
     print("\nIf icon appears incorrect:")
     print("1. Delete old .exe")
     print("2. Restart Windows Explorer or restart PC")
