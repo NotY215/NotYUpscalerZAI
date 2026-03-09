@@ -68,7 +68,7 @@ Perfect for:
 | **RAM**         | 4 GB DDR3/DDR4               |
 | **GPU**         | Integrated (Intel HD / AMD Radeon) |
 | **OS**          | Windows 10/11 (64-bit)       |
-| **Storage**     | ~250 MB free                 |
+| **Storage**     | ~1 GB free                 |
 | **Python**      | Not needed (standalone .exe) |
 
 ### Recommended (Best quality & speed)
@@ -116,7 +116,7 @@ Perfect for:
 **Latest stable release (v6.2)**  
 → https://github.com/NotY215/NotYUpscalerZAI/releases/latest
 
-1. Download the `.exe` file (around 2.8 MB standalone)
+1. Download the `.exe` file (around 700-800 MB standalone)
 2. Run it (no installation needed)
 3. Accept the GPL-3.0 license terms
 4. Select media → adjust settings → Export
