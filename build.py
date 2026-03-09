@@ -34,7 +34,7 @@ SCRIPT      = "main.py"
 ICON_FILE   = "logo.ico"
 MODELS_DIR  = "models"
 FFMPEG_DIR  = "ffmpeg"
-DIST        = r"F:\Own Apps\Installer"
+DIST        = r"F:\Own Apps\Installer\NotyUpscalerZAI"
 
 os.makedirs(DIST, exist_ok=True)
 
