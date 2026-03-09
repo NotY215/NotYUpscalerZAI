@@ -1,129 +1,140 @@
 # NotYUpscalerZAI
 
 <p align="center">
-  <img src="https://iili.io/q9ls4O7.jpg" alt="NotYUpscalerZAI Logo" width="120">
+  <img src="https://iili.io/q9ls4O7.jpg" alt="NotYUpscalerZAI Logo" width="140">
 </p>
 
 <h3 align="center">
-  Topaz-Level Quality Upscaler for Low/Mid-End PCs
+  Topaz-Level Quality Upscaler – Runs Perfectly on Low/Mid-End PCs
 </h3>
 
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.9+-blue?style=for-the-badge&logo=python">
   <img src="https://img.shields.io/badge/OpenCV-4.13+-green?style=for-the-badge&logo=opencv">
   <img src="https://img.shields.io/badge/CustomTkinter-5.2+-orange?style=for-the-badge">
-  <img src="https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge">
+  <img src="https://img.shields.io/badge/License-GPL%203.0-red?style=for-the-badge&logo=gnu">
+  <img src="https://img.shields.io/github/v/release/NotY215/NotYUpscalerZAI?color=brightgreen&style=for-the-badge">
 </p>
 
 <p align="center">
-  <b>Professional AI Upscaling • 4GB RAM Minimum • GPU/CPU Hybrid • 60FPS Smooth Video</b>
+  <b>Professional-grade image & video upscaling • 4 GB RAM minimum • Preserves aspect ratio • No cloud needed</b>
+</p>
+
+<p align="center">
+  <a href="https://github.com/NotY215/NotYUpscalerZAI/releases/latest">
+    <img src="https://img.shields.io/badge/Download%20Latest%20Release-blue?style=for-the-badge&logo=github">
+  </a>
 </p>
 
 ---
 
 ## 📋 Table of Contents
+
 - [Overview](#-overview)
 - [System Requirements](#-system-requirements)
-- [Key Features](#-key-features)
-- [Installation Guide](#-installation-guide)
-- [License](./LICENSE)
+- [Key Features](#-Key-Features)
+- [Download & Installation](#-download--installation)
+- [License](#-license)
 
 ---
 
 ## 🎯 Overview
 
-**NotYUpscalerZAI** is a lightweight, professional-grade image and video upscaling application designed specifically for **low and mid-end PCs**. It delivers **Topaz-like quality** without requiring expensive hardware or cloud processing.
+**NotYUpscalerZAI v6.2** is a free, open-source desktop application that brings **near-Topaz quality upscaling** to low-end and mid-range PCs — without needing powerful GPUs, cloud subscriptions, or 32 GB RAM.
 
-The application uses a hybrid approach combining:
-- **Traditional filters** (Lanczos, Unsharp Mask, CLAHE)
-- **AI-simulated enhancement** (Multi-stage denoising, adaptive sharpening, edge detection)
-- **Smart optimization** for CPU/GPU balancing
+It uses a carefully tuned combination of:
 
-Perfect for users with integrated graphics, entry-level GPUs (GT 610/730), or older processors (i3 dual-core).
+- Lanczos scaling
+- Adaptive unsharp masking
+- Edge-aware sharpening
+- Light denoising
+- Contrast & saturation enhancement
+
+All processing is done **locally** on your machine. No internet required after download.
+
+Perfect for:
+- Old laptops (i3/i5 4th–8th gen, 4–16 GB RAM)
+- Integrated graphics (Intel HD/UHD, AMD Radeon)
+- Entry-level dedicated GPUs (GT 610, GT 730, GTX 750)
 
 ---
 
 ## 💻 System Requirements
 
-### ✅ Minimum Requirements
-| Component | Specification |
-|----------|---------------|
-| **CPU** | Intel Core i3 Dual-Core or equivalent |
-| **RAM** | 4 GB DDR3 |
-| **GPU** | Intel HD Graphics / Integrated GPU |
-| **Storage** | 200 MB free space |
-| **OS** | Windows 10/11 (64-bit), Linux, macOS |
-| **Python** | 3.9 or higher |
+### Minimum (Works smoothly)
+| Component       | Requirement                  |
+|-----------------|------------------------------|
+| **CPU**         | Intel Core i3 Dual-Core or equivalent |
+| **RAM**         | 4 GB DDR3/DDR4               |
+| **GPU**         | Integrated (Intel HD / AMD Radeon) |
+| **OS**          | Windows 10/11 (64-bit)       |
+| **Storage**     | ~250 MB free                 |
+| **Python**      | Not needed (standalone .exe) |
 
-### 🚀 Recommended Requirements
-| Component | Specification |
-|----------|---------------|
-| **CPU** | Intel Core i5 Quad-Core or equivalent |
-| **RAM** | 8-16 GB DDR4 |
-| **GPU** | NVIDIA GeForce GT 610 / GT 730 / GTX 750 or better |
-| **Storage** | 500 MB free space |
-| **OS** | Windows 11 (64-bit) |
-| **Python** | 3.10+ |
-
-### 🔧 Software Dependencies
-- FFmpeg (must be in system PATH)
-- Python 3.9+
-- OpenCV with CUDA support (optional, for GPU acceleration)
+### Recommended (Best quality & speed)
+| Component       | Requirement                  |
+|-----------------|------------------------------|
+| **CPU**         | Intel Core i5 Quad-Core or better |
+| **RAM**         | 8–16 GB                      |
+| **GPU**         | NVIDIA GT 610 / GT 730 or better |
+| **OS**          | Windows 11 (64-bit)          |
 
 ---
 
 ## ✨ Key Features
 
-### 🖼️ Image Upscaling
-- **Resolution Targets**: Fit 2K (2560×1440), Fit 3K (2880×1620), Fit 4K (3840×2160)
-- **Preserves Aspect Ratio**: Never crops or stretches
-- **Multi-pass Enhancement**: Denoise → Sharpen → Color Correct → Glow
-- **Format Support**: JPG, PNG, WEBP, BMP, TIFF
+### Image Upscaling
+- Targets: Fit 2K / Fit 3K / Fit 4K (preserves original aspect ratio)
+- Multi-stage enhancement: Denoise → Sharpen → Contrast → Glow
+- Supports JPG, PNG, WEBP, BMP
 
-### 🎬 Video Upscaling
-- **FPS Enhancement**: Converts any video to 60 FPS (motion interpolation)
-- **Smart Interpolation**: `minterpolate` filter with motion compensation
-- **Duration Preserved**: Only smoothness increased, length unchanged
-- **Format Support**: MP4, MKV, AVI, MOV, WebM
+### Video Upscaling
+- Resolution upscale + quality boost (no FPS change)
+- Bitrate control: 4–60 Mbps slider (higher = better quality, larger file)
+- Auto-preset selection based on bitrate (veryfast → slow)
+- Supports MP4, MKV, AVI, MOV input/output
+- Live preview with real-time sharpening
 
-### 🎨 AI Models (3+1 Specialized)
-1. **Lite Restore** – Fast, minimal enhancement (low-end PCs)
-2. **Pro Detail** – Balanced quality/performance (mid-range)
-3. **Ultra Native** – Maximum detail, AI-simulated (recommended)
-4. **Image Enhance** – Dedicated model for photographs
+### User Interface
+- Modern dark theme with cyan accents
+- Side-by-side original vs enhanced preview
+- Timeline scrubbing for videos
+- Play/Pause + Open in default player
+- Progress bar + cancel button during export
+- Real-time estimated output file size display
 
-### 🎛️ Professional Controls
-- **Live Preview**: Real-time before/after comparison
-- **Timeline Seek**: Frame-accurate video preview
-- **Adjustments**: Sharpen, Contrast, Saturation, Glow
-- **Output Control**: Custom output folder selection
-- **Auto-Open**: Opens enhanced files automatically
-
-### ⚡ Performance Features
-- **GPU/CPU Toggle**: Auto-detect or manual selection
-- **Memory Efficient**: Processes large files without crashing
-- **Multi-threading**: Background export doesn't freeze UI
-- **Config Save**: Remembers your preferences
+### Performance
+- Optimized for low RAM & weak CPUs
+- Background export (UI stays responsive)
+- No internet or cloud needed
+- GPL-3.0 open source – free forever
 
 ---
 
-## 📦 Installation Guide
+## 📥 Download & Installation
 
-### Step 1: Download
-```bash
-DOWNLOAD EXE https://github.com/NotY215/NotYUpscalerZAI/releases
-```
-### Step2: Run
-```
-Accept Terms and Condition
-Continue Choose Where to download
+**Latest stable release (v6.2)**  
+→ https://github.com/NotY215/NotYUpscalerZAI/releases/latest
 
-```
+1. Download the `.exe` file (around 2.8 MB standalone)
+2. Run it (no installation needed)
+3. Accept the GPL-3.0 license terms
+4. Select media → adjust settings → Export
 
-### Step3: Enjoy
-```
- Just open installed app and enjoy 
+**That's it!** No Python or FFmpeg installation required — everything is bundled.
 
-```
-=======
+If any antivirus flags it (false positive common with PyInstaller exes), add exception or compile from source.
 
+---
+
+## ⚖️ License
+
+This project is licensed under the **GNU General Public License v3.0**  
+→ Full license text: [LICENSE](./LICENSE)
+
+You are free to use, modify, and distribute — as long as derivative works remain open-source under GPL-3.0.
+
+---
+
+Made with ❤️ for the community by **NotY215**  
+Last updated: March 2026

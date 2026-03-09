@@ -1,5 +1,5 @@
 # build_exe.py
-# Full production build script with proper icon + packages + models + bundled ffmpeg
+# Fixed version: proper quoting + Windows-compatible --add-data syntax
 
 import PyInstaller.__main__
 import os
@@ -30,7 +30,7 @@ ensure_venv()
 # ─────────────────────────────────────────────────────────────
 # CONFIG
 # ─────────────────────────────────────────────────────────────
-SCRIPT      = "main.py"               
+SCRIPT      = "main.py"
 ICON_FILE   = "logo.ico"
 MODELS_DIR  = "models"
 FFMPEG_DIR  = "ffmpeg"
@@ -48,33 +48,46 @@ if not os.path.exists(ICON_FILE):
 print(f"Using icon: {ICON_FILE}")
 
 # ─────────────────────────────────────────────────────────────
-# COLLECT ALL ADD-DATA ITEMS
+# COLLECT ALL ADD-DATA ITEMS (properly quoted for Windows)
 # ─────────────────────────────────────────────────────────────
 add_data_args = []
 
+# Separator: ; on Windows, : on Unix
+sep = ";" if os.name == "nt" else ":"
+
 # 1. Models folder (recursive)
 if os.path.exists(MODELS_DIR):
+    print("Adding models folder contents...")
     for root, dirs, files in os.walk(MODELS_DIR):
+        if "__pycache__" in root:
+            continue
         for file in files:
-            full_path = os.path.join(root, file)
-            rel_path = os.path.relpath(root, ".")
-            add_data_args.append(f'--add-data="{full_path};{rel_path}"')
+            full_path = os.path.join(root, file).replace("\\", "/")  # normalize to forward slashes
+            rel_path = os.path.relpath(root, ".").replace("\\", "/")
+            # Quote the whole argument to prevent splitting
+            arg = f"--add-data={full_path}{sep}{rel_path}"
+            add_data_args.append(arg)
+            print(f"  Added: {full_path} → {rel_path}")
 else:
     print("⚠ Warning: models folder not found")
 
 # 2. Bundled ffmpeg files
 if os.path.exists(FFMPEG_DIR):
+    print("Adding FFmpeg binaries...")
     for file in ["ffmpeg.exe", "ffprobe.exe"]:
-        src = os.path.join(FFMPEG_DIR, file)
+        src = os.path.join(FFMPEG_DIR, file).replace("\\", "/")
         if os.path.exists(src):
-            add_data_args.append(f'--add-data="{src};."')
+            arg = f"--add-data={src}{sep}."
+            add_data_args.append(arg)
+            print(f"  Added: {src} → .")
         else:
             print(f"⚠ Warning: {file} not found in ffmpeg folder")
 else:
     print("⚠ Warning: ffmpeg folder not found — building without bundled FFmpeg!")
 
-# 3. Icon file (optional runtime access)
-add_data_args.append(f'--add-data="{ICON_FILE};."')
+# 3. Icon file
+icon_arg = f"--add-data={ICON_FILE}{sep}."
+add_data_args.append(icon_arg)
 
 # ─────────────────────────────────────────────────────────────
 # PYINSTALLER ARGUMENTS
@@ -83,7 +96,8 @@ args = [
     SCRIPT,
     "--onefile",
     "--windowed",
-    f"--icon={ICON_FILE}",                # Main EXE icon
+    "--name=NotYUpscalerZAI",
+    f"--icon={ICON_FILE}",
     "--collect-all=cv2",
     "--collect-all=psutil",
     "--collect-all=customtkinter",
@@ -99,7 +113,7 @@ args = [
 
 print("\nPyInstaller command:")
 print("pyinstaller " + " ".join(args))
-print("-" * 70)
+print("-" * 100)
 
 # ─────────────────────────────────────────────────────────────
 # BUILD
@@ -133,7 +147,7 @@ if os.path.exists(spec_file):
 exe_name = SCRIPT.replace(".py", ".exe")
 exe = os.path.join(DIST, exe_name)
 
-print("\n" + "=" * 70)
+print("\n" + "=" * 100)
 if os.path.exists(exe):
     print("🎉 BUILD SUCCESSFUL!")
     print(f"EXE location: {exe}")
@@ -144,6 +158,6 @@ if os.path.exists(exe):
     print("  3. Rebuild if needed")
 else:
     print("❌ BUILD FAILED — check output above")
-print("=" * 70)
+print("=" * 100)
 
 input("\nPress Enter to exit...")
