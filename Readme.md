@@ -30,11 +30,13 @@
 
 ## 📋 Table of Contents
 
-- [Overview](#-overview)
-- [System Requirements](#-system-requirements)
-- [Key Features](#-Key-Features)
-- [Download & Installation](#-download--installation)
-- [License](#-license)
+#### - [Overview](#-overview)
+#### - [System Requirements](#-system-requirements)
+#### - [QUALITY + SPEED ](#quality--speed)
+#### - [Key Features](#-Key-Features)
+#### - [Download & Installation](#-download--installation)
+#### - [License](#-license)
+
 
 ---
 
@@ -81,6 +83,16 @@ Perfect for:
 
 ---
 
+
+## Quality + Speed
+
+| Order | Quality (noise / artifacts) | Speed / Workflow efficiency | When to use it anyway |
+|------|-------------------------------|------------------------------|-----------------------|
+| Edit → Export → Enhance | **Best – cleanest result** | Very good (most common pro workflow) | Almost all serious projects |
+| Enhance first → then edit in AE | **Worst – noise/artifacts amplified** | Slightly faster editing (smaller files) | Only very quick social media / low-budget jobs |
+| Enhance → Export → Re-enhance (double pass) | **Extremely bad – compounding artifacts** | Waste of time | Never do this |
+
+---
 ## ✨ Key Features
 
 ### Image Upscaling
