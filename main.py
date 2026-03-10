@@ -263,10 +263,18 @@ class NotYUpscalerZAI(ctk.CTk):
         adj = ctk.CTkFrame(right, fg_color="#1e1e2e", corner_radius=8)
         adj.pack(pady=16, padx=20, fill="x")
 
+        # Sharpen only for video mode
+        self.sharpen_frame = ctk.CTkFrame(adj, fg_color="transparent")
+        ctk.CTkLabel(self.sharpen_frame, text="Sharpen Strength", font=ctk.CTkFont(size=14, weight="bold")).pack(pady=(12,4))
+        self.sharpen_s = ctk.CTkSlider(self.sharpen_frame, from_=0.5, to=4.0, command=self.on_sharpen_change,
+                                       fg_color="#2a2f38", progress_color=self.accent)
+        self.sharpen_s.set(2.0)
+        self.sharpen_s.pack(padx=20, pady=(0,12), fill="x")
+
         bitrate_frame = ctk.CTkFrame(adj, fg_color="transparent")
         bitrate_frame.pack(fill="x", pady=8)
 
-        ctk.CTkLabel(bitrate_frame, text="Bitrate (Mbps) - Video only", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=4)
+        ctk.CTkLabel(bitrate_frame, text="Bitrate (Mbps)", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=4)
         self.bitrate_s = ctk.CTkSlider(bitrate_frame, from_=4, to=60, number_of_steps=56, command=self.on_bitrate_change,
                                        fg_color="#2a2f38", progress_color=self.success)
         self.bitrate_s.set(12)
@@ -282,6 +290,7 @@ class NotYUpscalerZAI(ctk.CTk):
         self.status.pack(pady=16)
 
         self.format_frame.pack_forget()
+        self.sharpen_frame.pack_forget()  # initially hidden
 
     def on_bitrate_change(self, value):
         self.bitrate_label.configure(text=f"{int(value)} Mbps")
@@ -296,12 +305,16 @@ class NotYUpscalerZAI(ctk.CTk):
         size_mb = (bitrate_mbps * self.video_duration_sec * 1.15) / 8
         if size_mb > 1024:
             text = f"~{size_mb/1024:.1f} GB"
-            color = "#ff9800" if size_mb > 5000 else "#a0a0ff"
         else:
             text = f"~{size_mb:.1f} MB"
-            color = "#a0a0ff"
 
-        self.size_estimate_label.configure(text=f"Estimated size: {text}", text_color=color)
+        self.size_estimate_label.configure(text=f"Estimated size: {text}")
+
+    def on_sharpen_change(self, value):
+        if self.current_model:
+            self.current_model.sharpen = value
+        if self.live_enabled:
+            self.live_update()
 
     def on_model_change(self, selected):
         self.model_var.set(selected)
@@ -311,23 +324,30 @@ class NotYUpscalerZAI(ctk.CTk):
 
     def update_model(self):
         model_name = self.model_var.get()
+        sharpen = self.sharpen_s.get() if self.is_video else 0  # no sharpen for images
         try:
             if self.is_video:
                 if model_name == "Lite Restore":
                     from models.lite_restore import LiteRestoreEnhancer
-                    self.current_model = LiteRestoreEnhancer()
+                    self.current_model = LiteRestoreEnhancer(sharpen=sharpen)
                 elif model_name == "Pro Detail":
                     from models.pro_detail import ProDetailEnhancer
-                    self.current_model = ProDetailEnhancer()
+                    self.current_model = ProDetailEnhancer(sharpen=sharpen)
                 else:
                     from models.ultra_native import UltraNativeEnhancer
-                    self.current_model = UltraNativeEnhancer()
+                    self.current_model = UltraNativeEnhancer(sharpen=sharpen)
             else:
                 from models.image_enhance import ImageEnhanceModel
-                self.current_model = ImageEnhanceModel()
+                self.current_model = ImageEnhanceModel()  # no sharpen param
         except Exception as e:
             messagebox.showerror("Model Error", f"Failed to load model:\n{str(e)}")
             self.current_model = None
+
+        # Show/hide sharpen slider based on mode
+        if self.is_video:
+            self.sharpen_frame.pack(fill="x", pady=(0,8))
+        else:
+            self.sharpen_frame.pack_forget()
 
     def select_file(self):
         path = filedialog.askopenfilename(filetypes=[("Media","*.jpg *.jpeg *.png *.webp *.mp4 *.mkv *.avi *.mov")])
@@ -340,9 +360,11 @@ class NotYUpscalerZAI(ctk.CTk):
 
         if self.is_video:
             self.format_frame.pack(fill="x", pady=(8,0))
+            self.sharpen_frame.pack(fill="x", pady=(0,8))
             self.update_size_estimate()
         else:
             self.format_frame.pack_forget()
+            self.sharpen_frame.pack_forget()
             self.size_estimate_label.configure(text="Estimated size: —")
 
         if self.is_video:
@@ -456,16 +478,21 @@ class NotYUpscalerZAI(ctk.CTk):
         self.last_preview_time = current_time
 
         try:
-            frame = self.current_frame_bgr.copy()
-            # Pure natural enhancement for live preview (same as export)
-            frame = cv2.bilateralFilter(frame, d=9, sigmaColor=75, sigmaSpace=75)
-            frame = cv2.convertScaleAbs(frame, alpha=1.08, beta=5)  # mild contrast
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            edges = cv2.Laplacian(gray, cv2.CV_64F)
-            edges = cv2.convertScaleAbs(edges)
-            edges = cv2.GaussianBlur(edges, (0,0), 1.0)
-            frame = cv2.addWeighted(frame, 1.0, cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR), 0.25, 0)
-            self.show_frame(frame, self.enh_label)
+            sharpen = self.sharpen_s.get() if self.is_video else 0
+
+            # Safe unsharp mask – no anchor/ksize issues
+            if sharpen > 0.1:
+                sigma = 1.0 + sharpen * 1.5          #  ~1.0 – 7.0 range
+                blurred = cv2.GaussianBlur(self.current_frame_bgr, (0, 0), sigma)
+                enhanced = cv2.addWeighted(
+                    self.current_frame_bgr, 1.0 + sharpen * 1.2,
+                    blurred,              -sharpen * 1.2,
+                    0
+                )
+            else:
+                enhanced = self.current_frame_bgr.copy()
+
+            self.show_frame(enhanced, self.enh_label)
         except Exception as e:
             print("Live preview error:", str(e))
 
@@ -511,7 +538,7 @@ class NotYUpscalerZAI(ctk.CTk):
     def disable_ui(self):
         widgets = [
             self.select_btn, self.output_btn, self.model_menu, self.target_menu,
-            self.format_menu, self.bitrate_s,
+            self.format_menu, self.sharpen_s if self.is_video else None, self.bitrate_s if self.is_video else None,
             self.play_btn, self.timeline, self.preview_toggle_btn, self.export_btn
         ]
         for w in widgets:
@@ -521,7 +548,7 @@ class NotYUpscalerZAI(ctk.CTk):
     def enable_ui(self):
         widgets = [
             self.select_btn, self.output_btn, self.model_menu, self.target_menu,
-            self.format_menu, self.bitrate_s,
+            self.format_menu, self.sharpen_s if self.is_video else None, self.bitrate_s if self.is_video else None,
             self.play_btn, self.timeline, self.preview_toggle_btn, self.export_btn
         ]
         for w in widgets:
@@ -536,24 +563,14 @@ class NotYUpscalerZAI(ctk.CTk):
             ffmpeg_path = get_ffmpeg_path()
 
             if not self.is_video:
-                # Pure natural image enhancement (no sharpen slider)
                 img = cv2.imread(self.current_path)
                 if img is None:
                     raise ValueError("Cannot read image")
                 h, w = img.shape[:2]
                 nw, nh = self.calculate_size(w, h)
                 up = cv2.resize(img, (nw, nh), cv2.INTER_LANCZOS4)
-
-                # Natural enhancement steps
-                up = cv2.bilateralFilter(up, d=9, sigmaColor=75, sigmaSpace=75)  # noise reduction
-                up = cv2.convertScaleAbs(up, alpha=1.12, beta=8)  # gentle contrast & brightness
-                gray = cv2.cvtColor(up, cv2.COLOR_BGR2GRAY)
-                edges = cv2.Laplacian(gray, cv2.CV_64F)
-                edges = cv2.convertScaleAbs(edges)
-                edges = cv2.GaussianBlur(edges, (0,0), 1.2)
-                up = cv2.addWeighted(up, 1.0, cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR), 0.28, 0)
-
-                cv2.imwrite(out_path, up, [int(cv2.IMWRITE_JPEG_QUALITY), 92])
+                enhanced = self.current_model.enhance_frame(up)
+                cv2.imwrite(out_path, enhanced, [int(cv2.IMWRITE_JPEG_QUALITY), 92])
                 self.after(0, lambda: self._update_progress(100))
             else:
                 probe = get_ffprobe_path()
@@ -590,7 +607,8 @@ class NotYUpscalerZAI(ctk.CTk):
                 else:
                     preset = "slow"
 
-                vf = f"scale={nw}:{nh}:flags=lanczos"
+                sharpen = min(max(self.sharpen_s.get(), 0.5), 3.0)
+                vf = f"scale={nw}:{nh}:flags=lanczos,unsharp=5:5:{sharpen*1.2}"
 
                 video_bitrate = f"{int(bitrate_mbps * 1000)}k"
                 maxrate      = f"{int(bitrate_mbps * 1.5 * 1000)}k"

@@ -1,46 +1,43 @@
-# models/image_enhance.py
 import cv2
 import numpy as np
+from .base_enhancer import BaseEnhancer
 
-class ImageEnhanceModel:
-    def __init__(self):
-        # No parameters needed anymore — pure natural enhancement
-        pass
+class ImageEnhanceModel(BaseEnhancer):
+    def __init__(self, **kwargs):
+        # No sharpen parameter needed anymore for pure image enhancement
+        super().__init__(contrast=1.18, saturation=1.22, glow=0.0, **kwargs)
 
     def enhance_frame(self, frame):
-        """
-        Pure, natural-looking image enhancement:
-        - Gentle noise reduction (bilateral filter)
-        - Mild contrast & brightness boost
-        - Subtle edge/detail enhancement (Laplacian)
-        - No aggressive sharpening → avoids glow/dull issues
-        """
         if frame is None or frame.size == 0:
             return frame
 
+        # Light bilateral filter to reduce noise without losing detail
+        frame = cv2.bilateralFilter(frame, d=7, sigmaColor=45, sigmaSpace=45)
+
+        # Subtle denoising (very light to keep natural look)
         try:
-            # Step 1: Gentle denoising + detail preservation
-            frame = cv2.bilateralFilter(frame, d=9, sigmaColor=75, sigmaSpace=75)
+            frame = cv2.fastNlMeansDenoisingColored(frame, None, h=6, hColor=6, templateWindowSize=5, searchWindowSize=11)
+        except:
+            pass
 
-            # Step 2: Mild contrast & saturation/brightness boost
-            frame = cv2.convertScaleAbs(frame, alpha=1.12, beta=8)
+        # Apply contrast and saturation from base (controlled values)
+        frame = cv2.convertScaleAbs(frame, alpha=self.contrast, beta=0)
 
-            # Step 3: Subtle edge/detail enhancement (natural look)
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            edges = cv2.Laplacian(gray, cv2.CV_64F)
-            edges = cv2.convertScaleAbs(edges)
-            edges = cv2.GaussianBlur(edges, (0, 0), 1.2)  # slight softening
-            frame = cv2.addWeighted(frame, 1.0, cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR), 0.28, 0)
+        # Very subtle unsharp mask for edge clarity (no glow/brightness explosion)
+        blurred = cv2.GaussianBlur(frame, (0,0), 1.8)
+        frame = cv2.addWeighted(frame, 1.25, blurred, -0.25, 0)
 
-            return frame
+        # Optional very light glow/highlight recovery (disabled by default)
+        if self.glow > 0:
+            lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
+            l, a, b = cv2.split(lab)
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+            l = clahe.apply(l)
+            lab = cv2.merge((l, a, b))
+            frame = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
 
-        except Exception as e:
-            print("Image enhancement error:", str(e))
-            return frame
+        return frame
 
     def get_ffmpeg_vf(self, tw, th):
-        """
-        For video consistency — very light processing only
-        (no heavy filters to avoid FFmpeg errors)
-        """
+        # For images we don't use FFmpeg, but keep method for consistency
         return f"scale={tw}:{th}:flags=lanczos"
