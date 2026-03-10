@@ -1,5 +1,5 @@
 # build_exe.py
-# Fixed version: proper quoting + Windows-compatible --add-data syntax
+# Improved version: cleaner model/FFmpeg inclusion, proper quoting, Windows-friendly
 
 import PyInstaller.__main__
 import os
@@ -8,18 +8,19 @@ import shutil
 import subprocess
 
 # ─────────────────────────────────────────────────────────────
-# Ensure running inside venv
+# Force run inside virtual environment
 # ─────────────────────────────────────────────────────────────
 def ensure_venv(venv="venv"):
     if sys.prefix != sys.base_prefix:
-        return
+        return True
     if os.name == "nt":
         py = os.path.join(venv, "Scripts", "python.exe")
     else:
         py = os.path.join(venv, "bin", "python")
 
     if os.path.exists(py):
-        subprocess.run([py] + sys.argv)
+        print(f"Restarting inside venv: {py}")
+        subprocess.run([py] + sys.argv, check=False)
         sys.exit(0)
     else:
         print("❌ Virtual environment not found!")
@@ -28,136 +29,133 @@ def ensure_venv(venv="venv"):
 ensure_venv()
 
 # ─────────────────────────────────────────────────────────────
-# CONFIG
+# CONFIGURATION
 # ─────────────────────────────────────────────────────────────
-SCRIPT      = "main.py"
-ICON_FILE   = "logo.ico"
-MODELS_DIR  = "models"
-FFMPEG_DIR  = "ffmpeg"
-DIST        = r"F:\Own Apps\Installer\NotyUpscalerZAI"
+SCRIPT      = "main.py"                     # Your main application file
+ICON_FILE   = "logo.ico"                    # Must exist in current folder
+MODELS_DIR  = "models"                      # Folder with enhancer modules
+FFMPEG_DIR  = "ffmpeg"                      # Folder with ffmpeg.exe + ffprobe.exe
+DIST_DIR    = r"F:\Own Apps\Installer\NotyUpscalerZAI"
 
-os.makedirs(DIST, exist_ok=True)
+os.makedirs(DIST_DIR, exist_ok=True)
+
+# Separator for --add-data (Windows = ;    Linux/macOS = :)
+ADD_DATA_SEP = ";" if os.name == "nt" else ":"
 
 # ─────────────────────────────────────────────────────────────
-# ICON CHECK
+# VALIDATION
 # ─────────────────────────────────────────────────────────────
-if not os.path.exists(ICON_FILE):
-    print("❌ ERROR: logo.ico not found!")
+if not os.path.isfile(SCRIPT):
+    print(f"❌ ERROR: Main script not found: {SCRIPT}")
+    sys.exit(1)
+
+if not os.path.isfile(ICON_FILE):
+    print(f"❌ ERROR: Icon file not found: {ICON_FILE}")
     sys.exit(1)
 
 print(f"Using icon: {ICON_FILE}")
 
 # ─────────────────────────────────────────────────────────────
-# COLLECT ALL ADD-DATA ITEMS (properly quoted for Windows)
+# COLLECT --add-data ITEMS
 # ─────────────────────────────────────────────────────────────
-add_data_args = []
+add_data = []
 
-# Separator: ; on Windows, : on Unix
-sep = ";" if os.name == "nt" else ":"
-
-# 1. Models folder (recursive)
-if os.path.exists(MODELS_DIR):
-    print("Adding models folder contents...")
-    for root, dirs, files in os.walk(MODELS_DIR):
-        if "__pycache__" in root:
-            continue
-        for file in files:
-            full_path = os.path.join(root, file).replace("\\", "/")  # normalize to forward slashes
-            rel_path = os.path.relpath(root, ".").replace("\\", "/")
-            # Quote the whole argument to prevent splitting
-            arg = f"--add-data={full_path}{sep}{rel_path}"
-            add_data_args.append(arg)
-            print(f"  Added: {full_path} → {rel_path}")
+# 1. Entire models folder → put inside 'models' in the bundle
+if os.path.isdir(MODELS_DIR):
+    print("Adding models folder...")
+    add_data.append(f"--add-data={MODELS_DIR}{ADD_DATA_SEP}models")
+    # Optional: list what was found (for debugging)
+    for root, _, files in os.walk(MODELS_DIR):
+        for f in files:
+            if not f.endswith(('.pyc', '.pyo')):
+                print(f"  included: {os.path.join(root, f)}")
 else:
-    print("⚠ Warning: models folder not found")
+    print("⚠  Warning: 'models' folder not found — continuing without it")
 
-# 2. Bundled ffmpeg files
-if os.path.exists(FFMPEG_DIR):
+# 2. FFmpeg binaries → place in root of bundle
+if os.path.isdir(FFMPEG_DIR):
     print("Adding FFmpeg binaries...")
-    for file in ["ffmpeg.exe", "ffprobe.exe"]:
-        src = os.path.join(FFMPEG_DIR, file).replace("\\", "/")
-        if os.path.exists(src):
-            arg = f"--add-data={src}{sep}."
-            add_data_args.append(arg)
-            print(f"  Added: {src} → .")
+    for bin_name in ["ffmpeg.exe", "ffprobe.exe"]:
+        src = os.path.join(FFMPEG_DIR, bin_name)
+        if os.path.isfile(src):
+            add_data.append(f"--add-data={src}{ADD_DATA_SEP}.")
+            print(f"  included: {src}")
         else:
-            print(f"⚠ Warning: {file} not found in ffmpeg folder")
+            print(f"⚠  Missing: {src}")
 else:
-    print("⚠ Warning: ffmpeg folder not found — building without bundled FFmpeg!")
-
-# 3. Icon file
-icon_arg = f"--add-data={ICON_FILE}{sep}."
-add_data_args.append(icon_arg)
+    print("⚠  Warning: 'ffmpeg' folder not found → exe will use system FFmpeg if available")
 
 # ─────────────────────────────────────────────────────────────
 # PYINSTALLER ARGUMENTS
 # ─────────────────────────────────────────────────────────────
-args = [
+pyi_args = [
     SCRIPT,
     "--onefile",
-    "--windowed",
+    "--windowed",                   # No console window
     "--name=NotYUpscalerZAI",
     f"--icon={ICON_FILE}",
     "--collect-all=cv2",
     "--collect-all=psutil",
     "--collect-all=customtkinter",
-    "--collect-all=PIL",
+    "--collect-all=PIL",            # Pillow
+    "--collect-all=numpy",          # often needed with cv2
     "--hidden-import=cv2",
-    *add_data_args,
-    f"--distpath={DIST}",
+    "--hidden-import=customtkinter",
+    "--hidden-import=PIL",
+    *add_data,                      # models + ffmpeg
+    f"--distpath={DIST_DIR}",
     "--noconfirm",
     "--clean",
-    "--noupx",
+    "--noupx",                      # modern PyInstaller recommends against UPX
     "--log-level=WARN"
 ]
 
-print("\nPyInstaller command:")
-print("pyinstaller " + " ".join(args))
-print("-" * 100)
+print("\nPyInstaller command being executed:")
+print("pyinstaller " + " ".join(pyi_args))
+print("─" * 100)
 
 # ─────────────────────────────────────────────────────────────
-# BUILD
+# RUN BUILD
 # ─────────────────────────────────────────────────────────────
 try:
-    print("🚀 Starting build...")
-    PyInstaller.__main__.run(args)
-    print("\n✅ Build finished successfully!")
+    print("🚀 Starting PyInstaller build...")
+    PyInstaller.__main__.run(pyi_args)
+    print("\n✅ PyInstaller finished")
 except Exception as e:
-    print(f"\n❌ Build failed: {e}")
+    print(f"\n❌ PyInstaller crashed: {e}")
     sys.exit(1)
 
 # ─────────────────────────────────────────────────────────────
-# CLEANUP
+# CLEANUP TEMPORARY FILES
 # ─────────────────────────────────────────────────────────────
-print("\n🧹 Cleaning up build files...")
+print("\n🧹 Cleaning temporary build files...")
 
-folders_to_delete = ['build', '__pycache__']
-spec_file = f"{SCRIPT.replace('.py', '')}.spec"
-
-for folder in folders_to_delete:
-    if os.path.exists(folder):
-        shutil.rmtree(folder, ignore_errors=True)
-
-if os.path.exists(spec_file):
-    os.remove(spec_file)
+for path in ["build", f"{SCRIPT.replace('.py', '')}.spec"]:
+    if os.path.exists(path):
+        if os.path.isdir(path):
+            shutil.rmtree(path, ignore_errors=True)
+        else:
+            os.remove(path)
 
 # ─────────────────────────────────────────────────────────────
-# FINAL STATUS
+# FINAL RESULT CHECK
 # ─────────────────────────────────────────────────────────────
-exe_name = SCRIPT.replace(".py", ".exe")
-exe = os.path.join(DIST, exe_name)
+exe_name = "NotYUpscalerZAI.exe"
+exe_path = os.path.join(DIST_DIR, exe_name)
 
-print("\n" + "=" * 100)
-if os.path.exists(exe):
-    print("🎉 BUILD SUCCESSFUL!")
-    print(f"EXE location: {exe}")
-    print("Size increased by ~50–70 MB (bundled FFmpeg)")
-    print("\nIf icon doesn't show correctly:")
-    print("  1. Delete the old .exe")
-    print("  2. Restart Windows Explorer (or PC)")
-    print("  3. Rebuild if needed")
+print("\n" + "═" * 100)
+if os.path.isfile(exe_path):
+    size_mb = os.path.getsize(exe_path) / (1024 * 1024)
+    print("🎉 BUILD APPEARS SUCCESSFUL!")
+    print(f"Output file : {exe_path}")
+    print(f"Size        : {size_mb:.1f} MB")
+    print("\nTips if icon is missing:")
+    print("  • Delete old .exe first")
+    print("  • Restart File Explorer (or PC)")
+    print("  • Clear icon cache: ie4uinit.exe -show")
 else:
-    print("❌ BUILD FAILED — check output above")
-print("=" * 100)
+    print("❌ BUILD FAILED — executable not found")
+    print("Check the output above for errors (especially missing modules or binaries)")
+print("═" * 100)
 
-input("\nPress Enter to exit...")
+input("\nPress Enter to close...")
