@@ -5,19 +5,19 @@
 </p>
 
 <h3 align="center">
-  Topaz-Level Quality Upscaler – Runs Perfectly on Low/Mid-End PCs
+  Near-Topaz Quality Upscaler & Enhancer – Optimized for Low/Mid-End PCs
 </h3>
 
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.9+-blue?style=for-the-badge&logo=python">
-  <img src="https://img.shields.io/badge/OpenCV-4.13+-green?style=for-the-badge&logo=opencv">
+  <img src="https://img.shields.io/badge/OpenCV-4.10+-green?style=for-the-badge&logo=opencv">
   <img src="https://img.shields.io/badge/CustomTkinter-5.2+-orange?style=for-the-badge">
+  <img src="https://img.shields.io/badge/FFmpeg-bundled-brightgreen?style=for-the-badge">
   <img src="https://img.shields.io/badge/License-GPL%203.0-red?style=for-the-badge&logo=gnu">
-  <img src="https://img.shields.io/github/v/release/NotY215/NotYUpscalerZAI?color=brightgreen&style=for-the-badge">
 </p>
 
 <p align="center">
-  <b>Professional-grade image & video upscaling • 4 GB RAM minimum • Preserves aspect ratio • No cloud needed</b>
+  <b>Professional local image & video enhancement • 4 GB RAM minimum • Aspect ratio preserved • No internet required</b>
 </p>
 
 <p align="center">
@@ -30,127 +30,123 @@
 
 ## 📋 Table of Contents
 
-#### - [Overview](#-overview)
-#### - [System Requirements](#-system-requirements)
-#### - [QUALITY + SPEED ](#quality--speed)
-#### - [Key Features](#-Key-Features)
-#### - [Download & Installation](#-download--installation)
-#### - [License](#-license)
-
+- [Overview](#-overview)
+- [System Requirements](#-system-requirements)
+- [Quality + Speed Notes](#quality--speed-notes)
+- [Key Features](#-key-features)
+- [Download & Installation](#-download--installation)
+- [License](#-license)
 
 ---
 
 ## 🎯 Overview
 
-**NotYUpscalerZAI v6.2** is a free, open-source desktop application that brings **near-Topaz quality upscaling** to low-end and mid-range PCs — without needing powerful GPUs, cloud subscriptions, or 32 GB RAM.
+**NotYUpscalerZAI** is a free, open-source desktop tool that delivers high-quality image and video enhancement/upscaling on modest hardware — bringing results close to paid tools like Topaz, but running smoothly on low-end laptops and desktops.
 
-It uses a carefully tuned combination of:
+It combines:
 
-- Lanczos scaling
-- Adaptive unsharp masking
-- Edge-aware sharpening
-- Light denoising
-- Contrast & saturation enhancement
+- High-quality Lanczos resizing
+- Adaptive sharpening (unsharp mask)
+- Edge enhancement & detail recovery
+- Light denoising (hqdn3d / fastNlMeans)
+- Contrast, saturation & subtle glow adjustments
 
-All processing is done **locally** on your machine. No internet required after download.
+Everything runs **locally** — no cloud processing, no subscriptions, no heavy deep learning models.
 
-Perfect for:
-- Old laptops (i3/i5 4th–8th gen, 4–16 GB RAM)
-- Integrated graphics (Intel HD/UHD, AMD Radeon)
-- Entry-level dedicated GPUs (GT 610, GT 730, GTX 750)
+Ideal for:
+- Budget laptops (i3 dual/quad-core, 4–16 GB RAM)
+- Integrated graphics (Intel UHD/HD, AMD Radeon)
+- Older discrete GPUs (GT 610, GT 730, GTX series entry-level)
 
 ---
 
 ## 💻 System Requirements
 
-### Minimum (Works smoothly)
-| Component       | Requirement                  |
-|-----------------|------------------------------|
+### Minimum (Runs acceptably)
+| Component       | Requirement                          |
+|-----------------|--------------------------------------|
 | **CPU**         | Intel Core i3 Dual-Core or equivalent |
-| **RAM**         | 4 GB DDR3/DDR4               |
-| **GPU**         | Integrated (Intel HD / AMD Radeon) |
-| **OS**          | Windows 10/11 (64-bit)       |
-| **Storage**     | ~1 GB free                 |
-| **Python**      | Not needed (standalone .exe) |
+| **RAM**         | 4 GB                                 |
+| **GPU**         | Integrated graphics                  |
+| **OS**          | Windows 10/11 (64-bit)               |
+| **Storage**     | ~800 MB – 1.2 GB free                |
 
-### Recommended (Best quality & speed)
-| Component       | Requirement                  |
-|-----------------|------------------------------|
-| **CPU**         | Intel Core i5 Quad-Core or better |
-| **RAM**         | 8–16 GB                      |
-| **GPU**         | NVIDIA GT 610 / GT 730 or better |
-| **OS**          | Windows 11 (64-bit)          |
+### Recommended (Smooth & best quality)
+| Component       | Recommendation                       |
+|-----------------|--------------------------------------|
+| **CPU**         | Intel Core i5 Quad-Core or better    |
+| **RAM**         | 8–16 GB                              |
+| **GPU**         | NVIDIA GT 610 / GT 730 or equivalent |
+| **OS**          | Windows 11 (64-bit)                  |
+
+---
+
+## Quality + Speed Notes
+
+| Scenario                              | Quality Level          | Processing Speed / File Size | Recommendation                          |
+|---------------------------------------|------------------------|-------------------------------|-----------------------------------------|
+| Single pass (recommended)             | Best balance           | Good                          | Most users – clean, natural results     |
+| Very high sharpen on live preview     | Can look over-sharpened / bright | Instant preview               | Adjust carefully (see disclaimer below) |
+| Export with high bitrate + slow preset| Highest detail retention | Slower, larger files          | Final archival / high-quality delivery  |
+| Low bitrate + fast preset             | Good for web/social    | Very fast, smaller files      | Quick sharing / storage saving          |
+
+**Important Disclaimers** ⚠️
+
+- **Images**: Live preview sharpening can increase perceived brightness. Always fine-tune sharpen strength while watching the enhanced preview. Final export uses model-tuned values → usually more balanced.
+- **Videos**: Live preview sharpening is subtle/preview-only. Feel free to push the slider higher during export — video processing uses FFmpeg filters optimized for motion & consistency.
 
 ---
 
-
-## Quality + Speed
-
-| Order | Quality (noise / artifacts) | Speed / Workflow efficiency | When to use it anyway |
-|------|-------------------------------|------------------------------|-----------------------|
-| Edit → Export → Enhance | **Best – cleanest result** | Very good (most common pro workflow) | Almost all serious projects |
-| Enhance first → then edit in AE | **Worst – noise/artifacts amplified** | Slightly faster editing (smaller files) | Only very quick social media / low-budget jobs |
-| Enhance → Export → Re-enhance (double pass) | **Extremely bad – compounding artifacts** | Waste of time | Never do this |
-
----
 ## ✨ Key Features
 
-### Image Upscaling
+### Image Enhancement/Upscaling
+- Targets: Fit 2K, Fit 3K, Fit 4K (always preserves original aspect ratio)
+- Models: Image Enhance (optimized denoising + subtle detail boost)
+- Formats: JPG, PNG, WEBP, BMP, etc.
+- Multi-step pipeline: Denoise → Bilateral filter → Contrast → Light edge enhancement
 
-# DISCALIMER ⚠️⚠️⚠️(IN IMAGE LIVE PREVIEW SHARPEN CHANGES BRIGHTNESS SO CHECK LIVE PREVIEW AND CHANGE SHARPEN ACCORDINGLY.)
-- Targets: Fit 2K / Fit 3K / Fit 4K (preserves original aspect ratio)
-- Multi-stage enhancement: Denoise → Sharpen → Contrast → Glow
-- Supports JPG, PNG, WEBP, BMP
+### Video Enhancement/Upscaling
+- Upscale resolution + quality boost (no frame rate change)
+- Models: Lite Restore • Pro Detail • Ultra Native (different denoising & detail strategies)
+- Sharpen strength slider (affects export filter strength)
+- Bitrate control: 4–60 Mbps with real-time size estimation
+- Auto FFmpeg preset (veryfast → slow) based on chosen bitrate
+- Supported inputs/outputs: MP4, MKV, AVI, MOV + more via FFmpeg
+- Live preview + timeline scrubbing
 
-### Video Upscaling
-
-# DISCALIMER ⚠️⚠️⚠️(ABOVE DISCLAIMER IS ONLY FOR IMAGE. IN VIDEO UPSCALLING DONOT CHECK LIVE PREVIEW INCREASE SHARPEN AS MUCH AS U WANT.)
-- Resolution upscale + quality boost (no FPS change)
-- Bitrate control: 4–60 Mbps slider (higher = better quality, larger file)
-- Auto-preset selection based on bitrate (veryfast → slow)
-- Supports MP4, MKV, AVI, MOV input/output
-- Live preview with real-time sharpening
-
-### User Interface
-- Modern dark theme with cyan accents
-- Side-by-side original vs enhanced preview
-- Timeline scrubbing for videos
-- Play/Pause + Open in default player
-- Progress bar + cancel button during export
-- Real-time estimated output file size display
+### Interface Highlights
+- Dark modern theme with cyan/neon accents
+- Side-by-side Original vs Enhanced preview (680×460)
+- Video timeline + Play/Pause + Open in default player
+- Real-time progress bar & cancel during long exports
+- Estimated output file size display
+- Output folder selection
 
 ### Performance
-- Optimized for low RAM & weak CPUs
-- Background export (UI stays responsive)
-- No internet or cloud needed
-- GPL-3.0 open source – free forever
+- Designed for 4 GB RAM machines
+- Export runs in background (UI remains responsive)
+- Bundled FFmpeg → no separate installation
+- GPL-3.0 open source – free to use/modify
 
 ---
 
 ## 📥 Download & Installation
 
-**Latest stable release (v6.2)**  
+**Latest release**  
 → https://github.com/NotY215/NotYUpscalerZAI/releases/latest
 
-1. Download the `.exe` file (around 700-800 MB standalone)
-2. Run it (no installation needed)
-3. Accept the GPL-3.0 license terms
-4. Select media → adjust settings → Export
+1. Download the standalone `.exe` (~200-300 MB)
+2. Run the executable (no install needed)
+3. Accept GPL-3.0 terms on first launch
+4. Select image/video → choose model/resolution/settings → Export
 
-**That's it!** No Python or FFmpeg installation required — everything is bundled.
-
-If any antivirus flags it (false positive common with PyInstaller exes), add exception or compile from source.
+**Antivirus note**: Some scanners flag PyInstaller bundles as false positives. Add an exception or build from source if needed.
 
 ---
+# ⚖️ License
+Released under the GNU General Public License v3.0
+→ See the LICENSE file for full terms.
+You may use, modify, and redistribute — provided derivatives remain open-source under GPL-3.0.
 
-## ⚖️ License
-
-This project is licensed under the **GNU General Public License v3.0**  
-→ Full license text: [LICENSE](./LICENSE)
-
-You are free to use, modify, and distribute — as long as derivative works remain open-source under GPL-3.0.
-
----
-
-Made with ❤️ for the community by **NotY215**  
+Made with ❤️ for the community by NotY215
 Last updated: March 2026
