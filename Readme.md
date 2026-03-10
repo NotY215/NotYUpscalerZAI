@@ -96,11 +96,15 @@ Perfect for:
 ## ✨ Key Features
 
 ### Image Upscaling
+
+# DISCALIMER ⚠️⚠️⚠️(IN IMAGE LIVE PREVIEW SHARPEN CHANGES BRIGHTNESS SO CHECK LIVE PREVIEW AND CHANGE SHARPEN ACCORDINGLY.)
 - Targets: Fit 2K / Fit 3K / Fit 4K (preserves original aspect ratio)
 - Multi-stage enhancement: Denoise → Sharpen → Contrast → Glow
 - Supports JPG, PNG, WEBP, BMP
 
 ### Video Upscaling
+
+# DISCALIMER ⚠️⚠️⚠️(ABOVE DISCLAIMER IS ONLY FOR IMAGE DONOT CHECK LIVE PREVIEW INCREASE SHARPEN AS MUCH AS U WANT.)
 - Resolution upscale + quality boost (no FPS change)
 - Bitrate control: 4–60 Mbps slider (higher = better quality, larger file)
 - Auto-preset selection based on bitrate (veryfast → slow)
