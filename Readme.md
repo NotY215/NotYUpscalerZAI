@@ -90,11 +90,6 @@ Ideal for:
 | Export with high bitrate + slow preset| Highest detail retention | Slower, larger files          | Final archival / high-quality delivery  |
 | Low bitrate + fast preset             | Good for web/social    | Very fast, smaller files      | Quick sharing / storage saving          |
 
-**Important Disclaimers** ⚠️
-
-- **Images**: Live preview sharpening can increase perceived brightness. Always fine-tune sharpen strength while watching the enhanced preview. Final export uses model-tuned values → usually more balanced.
-- **Videos**: Live preview sharpening is subtle/preview-only. Feel free to push the slider higher during export — video processing uses FFmpeg filters optimized for motion & consistency.
-
 ---
 
 ## ✨ Key Features
