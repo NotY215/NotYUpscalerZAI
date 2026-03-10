@@ -104,7 +104,7 @@ Perfect for:
 
 ### Video Upscaling
 
-# DISCALIMER ⚠️⚠️⚠️(ABOVE DISCLAIMER IS ONLY FOR IMAGE DONOT CHECK LIVE PREVIEW INCREASE SHARPEN AS MUCH AS U WANT.)
+# DISCALIMER ⚠️⚠️⚠️(ABOVE DISCLAIMER IS ONLY FOR IMAGE ONLY IN VIDEO UPSCALLING DONOT CHECK LIVE PREVIEW INCREASE SHARPEN AS MUCH AS U WANT.)
 - Resolution upscale + quality boost (no FPS change)
 - Bitrate control: 4–60 Mbps slider (higher = better quality, larger file)
 - Auto-preset selection based on bitrate (veryfast → slow)
