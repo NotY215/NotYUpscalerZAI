@@ -91,23 +91,36 @@ else:
 pyi_args = [
     SCRIPT,
     "--onefile",
-    "--windowed",                   # No console window
+    "--windowed",
     "--name=NotYUpscalerZAI",
     f"--icon={ICON_FILE}",
     "--collect-all=cv2",
     "--collect-all=psutil",
     "--collect-all=customtkinter",
-    "--collect-all=PIL",            # Pillow
-    "--collect-all=numpy",          # often needed with cv2
+    "--collect-all=PIL",
+    "--collect-all=numpy",
+
     "--hidden-import=cv2",
     "--hidden-import=customtkinter",
     "--hidden-import=PIL",
-    *add_data,                      # models + ffmpeg
+
+    "--collect-all=tkinterdnd2",
+    "--hidden-import=tkinterdnd2",
+
+    "--hidden-import=models.lite_restore",
+    "--hidden-import=models.pro_detail",
+    "--hidden-import=models.ultra_native",
+    "--hidden-import=models.image_enhance",
+
+    "--hidden-import=cv2.data",
+
+    *add_data,
+
     f"--distpath={DIST_DIR}",
     "--noconfirm",
     "--clean",
-    "--noupx",                      # modern PyInstaller recommends against UPX
-    "--log-level=WARN"
+    "--noupx",
+    "--log-level=WARN",
 ]
 
 print("\nPyInstaller command being executed:")

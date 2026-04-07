@@ -7,12 +7,13 @@ import json
 import threading
 import psutil
 import subprocess
-from PIL import Image
+from PIL import Image 
 import re
 import time
 import sys
 import shutil
 import numpy as np
+from tkinterdnd2 import DND_FILES, TkinterDnD
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
@@ -67,14 +68,14 @@ FORMAT_CODECS = {
     "3gp":  {"c_v": "mpeg4",   "c_a": "aac",  "f": "3gp",    "movflags": None,         "audio_b": "128k"}
 }
 
-class NotYUpscalerZAI(ctk.CTk):
+class NotYUpscalerZAI(TkinterDnD.Tk):
     def __init__(self):
         super().__init__()
-        self.title("NotY Upscaler ZAI")
+        self.title("NotY Upscaler ZAI v7.1")
         self.geometry("1480x960")
         self.minsize(1280, 800)
-
-        self.configure(fg_color="#0d1117")
+        
+        self.configure(bg="black")
 
         if os.path.exists("logo.ico"):
             try:
@@ -114,6 +115,10 @@ class NotYUpscalerZAI(ctk.CTk):
 
         self.last_preview_time = 0
 
+        # Drag & Drop support
+        self.drop_target_register(DND_FILES)
+        self.dnd_bind('<<Drop>>', self.on_drop)
+
     def load_config(self):
         if os.path.exists(CONFIG_FILE):
             try:
@@ -141,7 +146,7 @@ class NotYUpscalerZAI(ctk.CTk):
         top.pack(fill="x")
         top.pack_propagate(False)
 
-        ctk.CTkLabel(top, text="NotY Upscaler ZAI", font=ctk.CTkFont(family="Segoe UI", size=22, weight="bold"),
+        ctk.CTkLabel(top, text="NotY Upscaler ZAI v7.1", font=ctk.CTkFont(family="Segoe UI", size=22, weight="bold"),
                      text_color=self.accent).pack(side="left", padx=24, pady=12)
 
         self.specs_label = ctk.CTkLabel(top, text=f"RAM: {self.ram_gb:.1f} GB • Cores: {self.cores} • {'CUDA' if self.has_cuda else 'CPU'}",
@@ -165,7 +170,7 @@ class NotYUpscalerZAI(ctk.CTk):
         orig_panel = ctk.CTkFrame(left, fg_color="transparent")
         orig_panel.grid(row=0, column=0, sticky="nsew", padx=(8,4), pady=8)
         ctk.CTkLabel(orig_panel, text="ORIGINAL", font=ctk.CTkFont(size=15, weight="bold"), text_color="gray").pack(pady=(8,4))
-        self.orig_label = ctk.CTkLabel(orig_panel, text="Select media", width=680, height=460, fg_color="#11151c", corner_radius=0)
+        self.orig_label = ctk.CTkLabel(orig_panel, text="Select media or drop file here", width=680, height=460, fg_color="#11151c", corner_radius=0)
         self.orig_label.pack(expand=True, fill="both")
 
         enh_panel = ctk.CTkFrame(left, fg_color="transparent")
@@ -324,7 +329,7 @@ class NotYUpscalerZAI(ctk.CTk):
 
     def update_model(self):
         model_name = self.model_var.get()
-        sharpen = self.sharpen_s.get() if self.is_video else 0  # no sharpen for images
+        sharpen = self.sharpen_s.get() if self.is_video else 0
         try:
             if self.is_video:
                 if model_name == "Lite Restore":
@@ -338,12 +343,11 @@ class NotYUpscalerZAI(ctk.CTk):
                     self.current_model = UltraNativeEnhancer(sharpen=sharpen)
             else:
                 from models.image_enhance import ImageEnhanceModel
-                self.current_model = ImageEnhanceModel()  # no sharpen param
+                self.current_model = ImageEnhanceModel()
         except Exception as e:
             messagebox.showerror("Model Error", f"Failed to load model:\n{str(e)}")
             self.current_model = None
 
-        # Show/hide sharpen slider based on mode
         if self.is_video:
             self.sharpen_frame.pack(fill="x", pady=(0,8))
         else:
@@ -351,9 +355,19 @@ class NotYUpscalerZAI(ctk.CTk):
 
     def select_file(self):
         path = filedialog.askopenfilename(filetypes=[("Media","*.jpg *.jpeg *.png *.webp *.mp4 *.mkv *.avi *.mov")])
-        if not path:
-            return
+        if path:
+            self.load_media(path)
 
+    def on_drop(self, event):
+        path = event.data
+        if path.startswith('{') and path.endswith('}'):
+            path = path[1:-1]
+        if os.path.isfile(path):
+            ext = os.path.splitext(path)[1].lower()
+            if ext in ['.jpg','.jpeg','.png','.webp','.mp4','.mkv','.avi','.mov']:
+                self.load_media(path)
+
+    def load_media(self, path):
         self.current_path = path
         self.is_video = path.lower().endswith(('.mp4','.mkv','.avi','.mov'))
         self.file_name.configure(text=os.path.basename(path)[:40])
@@ -480,9 +494,8 @@ class NotYUpscalerZAI(ctk.CTk):
         try:
             sharpen = self.sharpen_s.get() if self.is_video else 0
 
-            # Safe unsharp mask – no anchor/ksize issues
             if sharpen > 0.1:
-                sigma = 1.0 + sharpen * 1.5          #  ~1.0 – 7.0 range
+                sigma = 1.0 + sharpen * 1.5
                 blurred = cv2.GaussianBlur(self.current_frame_bgr, (0, 0), sigma)
                 enhanced = cv2.addWeighted(
                     self.current_frame_bgr, 1.0 + sharpen * 1.2,
@@ -594,7 +607,6 @@ class NotYUpscalerZAI(ctk.CTk):
 
                 nw, nh = self.calculate_size(w, h)
 
-                # Auto preset based on bitrate
                 bitrate_mbps = self.bitrate_s.get()
                 if bitrate_mbps <= 8:
                     preset = "veryfast"
@@ -608,7 +620,8 @@ class NotYUpscalerZAI(ctk.CTk):
                     preset = "slow"
 
                 sharpen = min(max(self.sharpen_s.get(), 0.5), 3.0)
-                vf = f"scale={nw}:{nh}:flags=lanczos,unsharp=5:5:{sharpen*1.2}"
+                # Fixed safe VF for FFmpeg (avoid invalid params)
+                vf = f"scale={nw}:{nh}:flags=lanczos,unsharp=5:5:{sharpen*1.0}:0:0"
 
                 video_bitrate = f"{int(bitrate_mbps * 1000)}k"
                 maxrate      = f"{int(bitrate_mbps * 1.5 * 1000)}k"
@@ -682,7 +695,7 @@ class NotYUpscalerZAI(ctk.CTk):
                     time.sleep(0.07)
 
                 if self.export_process.returncode != 0 and not self.export_cancel_requested:
-                    err = self.export_process.stderr.read(2048)
+                    err = self.export_process.stderr.read(4096)
                     error_msg = f"FFmpeg failed (code {self.export_process.returncode})\n{err}"
                     raise RuntimeError(error_msg)
 
