@@ -1,6 +1,6 @@
 import customtkinter as ctk
 import tkinter as tk
-from tkinter import filedialog, messagebox, dnd
+from tkinter import filedialog, messagebox
 import cv2
 import os
 import json
@@ -11,8 +11,6 @@ from PIL import Image
 import re
 import time
 import sys
-import shutil
-import numpy as np
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
@@ -114,11 +112,7 @@ class NotYUpscalerZAI(ctk.CTk):
 
         self.last_preview_time = 0
 
-        # Drag & Drop
-        self.drop_target_register(tk.DND_FILES)
-        self.dnd_bind('<<Drop>>', self.on_drop)
-
-        # Auto-load from command line argument (for right-click context menu)
+        # Auto-load from command line argument (for right-click "Upscale with NotY Upscaler ZAI")
         if len(sys.argv) > 1:
             potential_path = sys.argv[1]
             if os.path.isfile(potential_path):
@@ -361,15 +355,6 @@ class NotYUpscalerZAI(ctk.CTk):
         path = filedialog.askopenfilename(filetypes=[("Media","*.jpg *.jpeg *.png *.webp *.mp4 *.mkv *.avi *.mov")])
         if path:
             self.load_media(path)
-
-    def on_drop(self, event):
-        path = event.data
-        if path.startswith('{') and path.endswith('}'):
-            path = path[1:-1]
-        if os.path.isfile(path):
-            ext = os.path.splitext(path)[1].lower()
-            if ext in ['.jpg','.jpeg','.png','.webp','.mp4','.mkv','.avi','.mov']:
-                self.load_media(path)
 
     def load_media(self, path):
         self.current_path = path
