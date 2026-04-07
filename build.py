@@ -1,174 +1,61 @@
-# build_exe.py
-# Improved version: cleaner model/FFmpeg inclusion, proper quoting, Windows-friendly
-
-import PyInstaller.__main__
 import os
 import sys
-import shutil
-import subprocess
+from pathlib import Path
 
-# ─────────────────────────────────────────────────────────────
-# Force run inside virtual environment
-# ─────────────────────────────────────────────────────────────
-def ensure_venv(venv="venv"):
-    if sys.prefix != sys.base_prefix:
-        return True
-    if os.name == "nt":
-        py = os.path.join(venv, "Scripts", "python.exe")
-    else:
-        py = os.path.join(venv, "bin", "python")
+# PyInstaller one-file builder for NotYUpscalerZAI with bundled ffmpeg.exe and models
+# Run this script with: python build_exe.py
 
-    if os.path.exists(py):
-        print(f"Restarting inside venv: {py}")
-        subprocess.run([py] + sys.argv, check=False)
-        sys.exit(0)
-    else:
-        print("❌ Virtual environment not found!")
-        sys.exit(1)
+script_name = "notyupscalerzai.py"  # Your main file name
+exe_name = "NotYUpscalerZAI_v7.1"
 
-ensure_venv()
+print("Starting build for NotYUpscalerZAI v7.1...")
 
-# ─────────────────────────────────────────────────────────────
-# CONFIGURATION
-# ─────────────────────────────────────────────────────────────
-SCRIPT      = "main.py"                     # Your main application file
-ICON_FILE   = "logo.ico"                    # Must exist in current folder
-MODELS_DIR  = "models"                      # Folder with enhancer modules
-FFMPEG_DIR  = "ffmpeg"                      # Folder with ffmpeg.exe + ffprobe.exe
-DIST_DIR    = r"F:\Own Apps\Installer\NotyUpscalerZAI"
-
-os.makedirs(DIST_DIR, exist_ok=True)
-
-# Separator for --add-data (Windows = ;    Linux/macOS = :)
-ADD_DATA_SEP = ";" if os.name == "nt" else ":"
-
-# ─────────────────────────────────────────────────────────────
-# VALIDATION
-# ─────────────────────────────────────────────────────────────
-if not os.path.isfile(SCRIPT):
-    print(f"❌ ERROR: Main script not found: {SCRIPT}")
-    sys.exit(1)
-
-if not os.path.isfile(ICON_FILE):
-    print(f"❌ ERROR: Icon file not found: {ICON_FILE}")
-    sys.exit(1)
-
-print(f"Using icon: {ICON_FILE}")
-
-# ─────────────────────────────────────────────────────────────
-# COLLECT --add-data ITEMS
-# ─────────────────────────────────────────────────────────────
-add_data = []
-
-# 1. Entire models folder → put inside 'models' in the bundle
-if os.path.isdir(MODELS_DIR):
-    print("Adding models folder...")
-    add_data.append(f"--add-data={MODELS_DIR}{ADD_DATA_SEP}models")
-    # Optional: list what was found (for debugging)
-    for root, _, files in os.walk(MODELS_DIR):
-        for f in files:
-            if not f.endswith(('.pyc', '.pyo')):
-                print(f"  included: {os.path.join(root, f)}")
-else:
-    print("⚠  Warning: 'models' folder not found — continuing without it")
-
-# 2. FFmpeg binaries → place in root of bundle
-if os.path.isdir(FFMPEG_DIR):
-    print("Adding FFmpeg binaries...")
-    for bin_name in ["ffmpeg.exe", "ffprobe.exe"]:
-        src = os.path.join(FFMPEG_DIR, bin_name)
-        if os.path.isfile(src):
-            add_data.append(f"--add-data={src}{ADD_DATA_SEP}.")
-            print(f"  included: {src}")
-        else:
-            print(f"⚠  Missing: {src}")
-else:
-    print("⚠  Warning: 'ffmpeg' folder not found → exe will use system FFmpeg if available")
-
-# ─────────────────────────────────────────────────────────────
-# PYINSTALLER ARGUMENTS
-# ─────────────────────────────────────────────────────────────
-pyi_args = [
-    SCRIPT,
+cmd = [
+    "pyinstaller",
     "--onefile",
     "--windowed",
-    "--name=NotYUpscalerZAI",
-    f"--icon={ICON_FILE}",
-    "--collect-all=cv2",
-    "--collect-all=psutil",
-    "--collect-all=customtkinter",
-    "--collect-all=PIL",
-    "--collect-all=numpy",
-
-    "--hidden-import=cv2",
+    "--name=NotYUpscalerZAI_v7.1",
+    f"--name={exe_name}",
+    "--icon=logo.ico" if os.path.exists("logo.ico") else "",
+    "--add-data=ffmpeg.exe;.",
+    "--add-data=models;models",
     "--hidden-import=customtkinter",
+    "--hidden-import=cv2",
     "--hidden-import=PIL",
-
-    "--collect-all=tkinterdnd2",
-    "--hidden-import=tkinterdnd2",
-
-    "--hidden-import=models.lite_restore",
-    "--hidden-import=models.pro_detail",
-    "--hidden-import=models.ultra_native",
-    "--hidden-import=models.image_enhance",
-
-    "--hidden-import=cv2.data",
-
-    *add_data,
-
-    f"--distpath={DIST_DIR}",
-    "--noconfirm",
+    "--hidden-import=psutil",
+    "--hidden-import=tkinter.dnd",
+    "--collect-all=customtkinter",
     "--clean",
-    "--noupx",
-    "--log-level=WARN",
+    script_name
 ]
 
-print("\nPyInstaller command being executed:")
-print("pyinstaller " + " ".join(pyi_args))
-print("─" * 100)
+# Remove empty strings
+cmd = [x for x in cmd if x]
 
-# ─────────────────────────────────────────────────────────────
-# RUN BUILD
-# ─────────────────────────────────────────────────────────────
-try:
-    print("🚀 Starting PyInstaller build...")
-    PyInstaller.__main__.run(pyi_args)
-    print("\n✅ PyInstaller finished")
-except Exception as e:
-    print(f"\n❌ PyInstaller crashed: {e}")
-    sys.exit(1)
+print("Running command:")
+print(" ".join(cmd))
 
-# ─────────────────────────────────────────────────────────────
-# CLEANUP TEMPORARY FILES
-# ─────────────────────────────────────────────────────────────
-print("\n🧹 Cleaning temporary build files...")
+os.system(" ".join(cmd))
 
-for path in ["build", f"{SCRIPT.replace('.py', '')}.spec"]:
-    if os.path.exists(path):
-        if os.path.isdir(path):
-            shutil.rmtree(path, ignore_errors=True)
-        else:
-            os.remove(path)
+print("\nBuild completed!")
+print(f"EXE should be in the 'dist' folder: dist/{exe_name}.exe")
+print("\nTo add Right-Click 'Upscale with NotY Upscaler ZAI':")
+print("1. Place the .exe in a permanent folder (e.g. C:\\NotYUpscalerZAI)")
+print("2. Run the .exe once (it will register paths)")
+print("3. For full context menu, create a .reg file with the following content and run it as Administrator:")
 
-# ─────────────────────────────────────────────────────────────
-# FINAL RESULT CHECK
-# ─────────────────────────────────────────────────────────────
-exe_name = "NotYUpscalerZAI.exe"
-exe_path = os.path.join(DIST_DIR, exe_name)
+reg_content = f'''Windows Registry Editor Version 5.00
 
-print("\n" + "═" * 100)
-if os.path.isfile(exe_path):
-    size_mb = os.path.getsize(exe_path) / (1024 * 1024)
-    print("🎉 BUILD APPEARS SUCCESSFUL!")
-    print(f"Output file : {exe_path}")
-    print(f"Size        : {size_mb:.1f} MB")
-    print("\nTips if icon is missing:")
-    print("  • Delete old .exe first")
-    print("  • Restart File Explorer (or PC)")
-    print("  • Clear icon cache: ie4uinit.exe -show")
-else:
-    print("❌ BUILD FAILED — executable not found")
-    print("Check the output above for errors (especially missing modules or binaries)")
-print("═" * 100)
+[HKEY_CLASSES_ROOT\\*\\shell\\NotYUpscalerZAI]
+@="Upscale with NotY Upscaler ZAI"
+"Icon"="\"{os.path.abspath(f'dist/{exe_name}.exe')}\""
 
-input("\nPress Enter to close...")
+[HKEY_CLASSES_ROOT\\*\\shell\\NotYUpscalerZAI\\command]
+@="\"{os.path.abspath(f'dist/{exe_name}.exe')}\" \"%1\""
+'''
+
+print("\n--- Copy below into a file named 'add_context.reg' and double-click it (as Admin) ---")
+print(reg_content)
+print("---------------------------------------------------")
+
+input("\nPress Enter to exit...")

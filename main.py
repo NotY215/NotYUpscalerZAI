@@ -1,19 +1,18 @@
 import customtkinter as ctk
 import tkinter as tk
-from tkinter import filedialog, messagebox
+from tkinter import filedialog, messagebox, dnd
 import cv2
 import os
 import json
 import threading
 import psutil
 import subprocess
-from PIL import Image 
+from PIL import Image
 import re
 import time
 import sys
 import shutil
 import numpy as np
-from tkinterdnd2 import DND_FILES, TkinterDnD
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
@@ -68,14 +67,14 @@ FORMAT_CODECS = {
     "3gp":  {"c_v": "mpeg4",   "c_a": "aac",  "f": "3gp",    "movflags": None,         "audio_b": "128k"}
 }
 
-class NotYUpscalerZAI(TkinterDnD.Tk):
+class NotYUpscalerZAI(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("NotY Upscaler ZAI v7.1")
         self.geometry("1480x960")
         self.minsize(1280, 800)
-        
-        self.configure(bg="black")
+
+        self.configure(fg_color="#0d1117")
 
         if os.path.exists("logo.ico"):
             try:
@@ -115,9 +114,17 @@ class NotYUpscalerZAI(TkinterDnD.Tk):
 
         self.last_preview_time = 0
 
-        # Drag & Drop support
-        self.drop_target_register(DND_FILES)
+        # Drag & Drop
+        self.drop_target_register(tk.DND_FILES)
         self.dnd_bind('<<Drop>>', self.on_drop)
+
+        # Auto-load from command line argument (for right-click context menu)
+        if len(sys.argv) > 1:
+            potential_path = sys.argv[1]
+            if os.path.isfile(potential_path):
+                ext = os.path.splitext(potential_path)[1].lower()
+                if ext in ['.jpg','.jpeg','.png','.webp','.mp4','.mkv','.avi','.mov']:
+                    self.after(100, lambda p=potential_path: self.load_media(p))
 
     def load_config(self):
         if os.path.exists(CONFIG_FILE):
@@ -268,7 +275,6 @@ class NotYUpscalerZAI(TkinterDnD.Tk):
         adj = ctk.CTkFrame(right, fg_color="#1e1e2e", corner_radius=8)
         adj.pack(pady=16, padx=20, fill="x")
 
-        # Sharpen only for video mode
         self.sharpen_frame = ctk.CTkFrame(adj, fg_color="transparent")
         ctk.CTkLabel(self.sharpen_frame, text="Sharpen Strength", font=ctk.CTkFont(size=14, weight="bold")).pack(pady=(12,4))
         self.sharpen_s = ctk.CTkSlider(self.sharpen_frame, from_=0.5, to=4.0, command=self.on_sharpen_change,
@@ -295,7 +301,7 @@ class NotYUpscalerZAI(TkinterDnD.Tk):
         self.status.pack(pady=16)
 
         self.format_frame.pack_forget()
-        self.sharpen_frame.pack_forget()  # initially hidden
+        self.sharpen_frame.pack_forget()
 
     def on_bitrate_change(self, value):
         self.bitrate_label.configure(text=f"{int(value)} Mbps")
@@ -305,14 +311,12 @@ class NotYUpscalerZAI(TkinterDnD.Tk):
         if not self.is_video or not self.video_duration_sec:
             self.size_estimate_label.configure(text="Estimated size: —")
             return
-
         bitrate_mbps = self.bitrate_s.get()
         size_mb = (bitrate_mbps * self.video_duration_sec * 1.15) / 8
         if size_mb > 1024:
             text = f"~{size_mb/1024:.1f} GB"
         else:
             text = f"~{size_mb:.1f} MB"
-
         self.size_estimate_label.configure(text=f"Estimated size: {text}")
 
     def on_sharpen_change(self, value):
@@ -493,7 +497,6 @@ class NotYUpscalerZAI(TkinterDnD.Tk):
 
         try:
             sharpen = self.sharpen_s.get() if self.is_video else 0
-
             if sharpen > 0.1:
                 sigma = 1.0 + sharpen * 1.5
                 blurred = cv2.GaussianBlur(self.current_frame_bgr, (0, 0), sigma)
@@ -504,7 +507,6 @@ class NotYUpscalerZAI(TkinterDnD.Tk):
                 )
             else:
                 enhanced = self.current_frame_bgr.copy()
-
             self.show_frame(enhanced, self.enh_label)
         except Exception as e:
             print("Live preview error:", str(e))
@@ -549,21 +551,19 @@ class NotYUpscalerZAI(TkinterDnD.Tk):
         threading.Thread(target=self.export_thread, daemon=True).start()
 
     def disable_ui(self):
-        widgets = [
-            self.select_btn, self.output_btn, self.model_menu, self.target_menu,
-            self.format_menu, self.sharpen_s if self.is_video else None, self.bitrate_s if self.is_video else None,
-            self.play_btn, self.timeline, self.preview_toggle_btn, self.export_btn
-        ]
+        widgets = [self.select_btn, self.output_btn, self.model_menu, self.target_menu,
+                   self.format_menu, self.sharpen_s if self.is_video else None, 
+                   self.bitrate_s if self.is_video else None,
+                   self.play_btn, self.timeline, self.preview_toggle_btn, self.export_btn]
         for w in widgets:
             if w and w.winfo_exists():
                 w.configure(state="disabled")
 
     def enable_ui(self):
-        widgets = [
-            self.select_btn, self.output_btn, self.model_menu, self.target_menu,
-            self.format_menu, self.sharpen_s if self.is_video else None, self.bitrate_s if self.is_video else None,
-            self.play_btn, self.timeline, self.preview_toggle_btn, self.export_btn
-        ]
+        widgets = [self.select_btn, self.output_btn, self.model_menu, self.target_menu,
+                   self.format_menu, self.sharpen_s if self.is_video else None, 
+                   self.bitrate_s if self.is_video else None,
+                   self.play_btn, self.timeline, self.preview_toggle_btn, self.export_btn]
         for w in widgets:
             if w and w.winfo_exists():
                 w.configure(state="normal")
@@ -620,7 +620,6 @@ class NotYUpscalerZAI(TkinterDnD.Tk):
                     preset = "slow"
 
                 sharpen = min(max(self.sharpen_s.get(), 0.5), 3.0)
-                # Fixed safe VF for FFmpeg (avoid invalid params)
                 vf = f"scale={nw}:{nh}:flags=lanczos,unsharp=5:5:{sharpen*1.0}:0:0"
 
                 video_bitrate = f"{int(bitrate_mbps * 1000)}k"
