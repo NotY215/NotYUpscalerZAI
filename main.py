@@ -26,11 +26,16 @@ def get_ffmpeg_path():
             base = sys._MEIPASS
         else:
             base = os.path.dirname(os.path.abspath(__file__))
-        bundled = os.path.join(base, "ffmpeg.exe")
+        bundled = os.path.join(base, "ffmpeg", "ffmpeg.exe")
         if os.path.isfile(bundled):
             print("Using bundled FFmpeg")
             return bundled
-        raise FileNotFoundError("FFmpeg not found. Install it or place ffmpeg.exe next to script.")
+        # Try ffmpeg folder in current directory
+        local_ffmpeg = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ffmpeg", "ffmpeg.exe")
+        if os.path.isfile(local_ffmpeg):
+            print("Using local FFmpeg")
+            return local_ffmpeg
+        raise FileNotFoundError("FFmpeg not found. Install it or place ffmpeg.exe in ffmpeg folder.")
 
 def get_ffprobe_path():
     try:
@@ -41,8 +46,13 @@ def get_ffprobe_path():
             base = sys._MEIPASS
         else:
             base = os.path.dirname(os.path.abspath(__file__))
-        probe = os.path.join(base, "ffprobe.exe")
-        return probe if os.path.isfile(probe) else None
+        probe = os.path.join(base, "ffmpeg", "ffprobe.exe")
+        if os.path.isfile(probe):
+            return probe
+        local_probe = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ffmpeg", "ffprobe.exe")
+        if os.path.isfile(local_probe):
+            return local_probe
+        return None
 
 VIDEO_MODELS = {
     "Lite Restore": "lite_restore",
@@ -56,19 +66,18 @@ IMAGE_MODEL = {
 
 CONFIG_FILE = "config.json"
 
+# Updated codecs with better compatibility
 FORMAT_CODECS = {
-    "mp4":  {"c_v": "libx264", "c_a": "aac",  "f": None,     "movflags": "+faststart", "audio_b": "192k"},
-    "mov":  {"c_v": "libx264", "c_a": "aac",  "f": "mov",    "movflags": None,         "audio_b": "192k"},
-    "m4v":  {"c_v": "libx264", "c_a": "aac",  "f": "ipod",   "movflags": "+faststart", "audio_b": "192k"},
-    "avi":  {"c_v": "mpeg4",   "c_a": "mp2",  "f": "avi",    "movflags": None,         "audio_b": "192k"},
-    "mxf":  {"c_v": "mpeg2video", "c_a": "pcm_s16le", "f": "mxf", "movflags": None,   "audio_b": None},
-    "3gp":  {"c_v": "mpeg4",   "c_a": "aac",  "f": "3gp",    "movflags": None,         "audio_b": "128k"}
+    "mp4":  {"c_v": "libx264", "c_a": "aac",  "f": "mp4",     "movflags": "+faststart", "audio_b": "192k", "ext": "mp4"},
+    "mov":  {"c_v": "libx264", "c_a": "aac",  "f": "mov",    "movflags": None,         "audio_b": "192k", "ext": "mov"},
+    "mkv":  {"c_v": "libx264", "c_a": "aac",  "f": "matroska", "movflags": None,         "audio_b": "192k", "ext": "mkv"},
+    "avi":  {"c_v": "mpeg4",   "c_a": "mp2",  "f": "avi",    "movflags": None,         "audio_b": "192k", "ext": "avi"},
 }
 
 class NotYUpscalerZAI(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("NotY Upscaler ZAI v7.1")
+        self.title("NotY Upscaler ZAI v7.2")
         self.geometry("1480x960")
         self.minsize(1280, 800)
 
@@ -112,7 +121,7 @@ class NotYUpscalerZAI(ctk.CTk):
 
         self.last_preview_time = 0
 
-        # Auto-load from command line argument (for right-click "Upscale with NotY Upscaler ZAI")
+        # Auto-load from command line argument
         if len(sys.argv) > 1:
             potential_path = sys.argv[1]
             if os.path.isfile(potential_path):
@@ -147,7 +156,7 @@ class NotYUpscalerZAI(ctk.CTk):
         top.pack(fill="x")
         top.pack_propagate(False)
 
-        ctk.CTkLabel(top, text="NotY Upscaler ZAI v7.1", font=ctk.CTkFont(family="Segoe UI", size=22, weight="bold"),
+        ctk.CTkLabel(top, text="NotY Upscaler ZAI v7.2", font=ctk.CTkFont(family="Segoe UI", size=22, weight="bold"),
                      text_color=self.accent).pack(side="left", padx=24, pady=12)
 
         self.specs_label = ctk.CTkLabel(top, text=f"RAM: {self.ram_gb:.1f} GB • Cores: {self.cores} • {'CUDA' if self.has_cuda else 'CPU'}",
@@ -542,7 +551,10 @@ class NotYUpscalerZAI(ctk.CTk):
                    self.play_btn, self.timeline, self.preview_toggle_btn, self.export_btn]
         for w in widgets:
             if w and w.winfo_exists():
-                w.configure(state="disabled")
+                try:
+                    w.configure(state="disabled")
+                except:
+                    pass
 
     def enable_ui(self):
         widgets = [self.select_btn, self.output_btn, self.model_menu, self.target_menu,
@@ -551,7 +563,10 @@ class NotYUpscalerZAI(ctk.CTk):
                    self.play_btn, self.timeline, self.preview_toggle_btn, self.export_btn]
         for w in widgets:
             if w and w.winfo_exists():
-                w.configure(state="normal")
+                try:
+                    w.configure(state="normal")
+                except:
+                    pass
 
     def export_thread(self):
         out_path = self.get_output_path(self.current_path)
@@ -604,8 +619,13 @@ class NotYUpscalerZAI(ctk.CTk):
                 else:
                     preset = "slow"
 
+                # FIXED: Correct unsharp filter parameters (must be odd numbers between 3-23)
                 sharpen = min(max(self.sharpen_s.get(), 0.5), 3.0)
-                vf = f"scale={nw}:{nh}:flags=lanczos,unsharp=5:5:{sharpen*1.0}:0:0"
+                # Unsharp filter: luma_msize_x:luma_msize_y:luma_amount:chroma_msize_x:chroma_msize_y:chroma_amount
+                # All size parameters must be odd numbers between 3 and 23
+                unsharp_filter = f"unsharp=5:5:{sharpen*0.8}:5:5:0.0"
+                
+                vf = f"scale={nw}:{nh}:flags=lanczos,{unsharp_filter}"
 
                 video_bitrate = f"{int(bitrate_mbps * 1000)}k"
                 maxrate      = f"{int(bitrate_mbps * 1.5 * 1000)}k"
@@ -626,11 +646,12 @@ class NotYUpscalerZAI(ctk.CTk):
                     "-c:a", fc["c_a"],
                     "-b:a", audio_b,
                     "-pix_fmt", "yuv420p",
-                    "-map", "0",
+                    "-map", "0:v:0",
                 ]
+                
+                # Add audio if present
+                cmd.extend(["-map", "0:a:0?"])
 
-                if fc.get("f"):
-                    cmd += ["-f", fc["f"]]
                 if fc.get("movflags"):
                     cmd += ["-movflags", fc["movflags"]]
 
@@ -739,7 +760,8 @@ class NotYUpscalerZAI(ctk.CTk):
     def get_output_path(self, input_path):
         base, _ = os.path.splitext(os.path.basename(input_path))
         if self.is_video:
-            ext = f".{self.format_var.get()}"
+            fmt = self.format_var.get()
+            ext = f".{FORMAT_CODECS.get(fmt, FORMAT_CODECS['mp4'])['ext']}"
         else:
             ext = os.path.splitext(input_path)[1]
         filename = f"{base}_enhanced{ext}"
