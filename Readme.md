@@ -35,7 +35,7 @@
 - [Quality + Speed Notes](#quality--speed-notes)
 - [Key Features](#-key-features)
 - [Download & Installation](#-download--installation)
-- [License](#-license)
+- [License](./LICENSE)
 
 ---
 
