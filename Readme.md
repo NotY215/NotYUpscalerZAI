@@ -145,3 +145,14 @@ You may use, modify, and redistribute — provided derivatives remain open-sourc
 
 Made with ❤️ for the community by NotY215
 Last updated: March 2026
+
+
+## Project policies
+
+- [Contributing](CONTRIBUTING.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Security](SECURITY.md)
+- [Support](SUPPORT.md)
+- [Citation](CITATION.cff)
+- [Governance](GOVERNANCE.md)
+- [License](LICENSE)
