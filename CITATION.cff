@@ -1,0 +1,12 @@
+cff-version: 1.2.0
+title: "NotYUpscalerZAI"
+message: "If you use NotYUpscalerZAI, please cite this repository."
+type: software
+authors:
+  - given-names: Shreyas
+    family-names: Mishra
+    affiliation: NotY215
+repository-code: "https://github.com/NotY215/NotYUpscalerZAI"
+url: "https://github.com/NotY215/NotYUpscalerZAI"
+license: "GPL-3.0"
+version: "current"
